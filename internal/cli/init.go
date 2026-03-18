@@ -147,41 +147,46 @@ func formatterFromCommand(cmd *cobra.Command) (output.Mode, output.Formatter, er
 // uses defaults silently.
 func ensureInitialized() (config.Config, error) {
 	cfg, err := config.Load()
-	if err == nil {
-		// Already initialized -- ensure DB exists
-		db, dbErr := store.Open(store.DatabasePath(cfg.ArchiveRoot))
-		if dbErr != nil {
-			return config.Config{}, dbErr
+	firstRun := false
+
+	if errors.Is(err, os.ErrNotExist) {
+		// No config file yet
+		firstRun = true
+		cfg, err = config.Default()
+		if err != nil {
+			return config.Config{}, err
 		}
-		db.Close()
-		return cfg, nil
-	}
-
-	if !errors.Is(err, os.ErrNotExist) {
+	} else if err != nil {
 		return config.Config{}, err
 	}
 
-	// First run
-	cfg, err = config.Default()
-	if err != nil {
-		return config.Config{}, err
-	}
-
-	if isTTY() {
+	// Run wizard if first run, or if account email is still missing
+	needsWizard := firstRun || cfg.AccountEmail == ""
+	if needsWizard && isTTY() {
 		cfg, err = runSetupWizard(cfg)
 		if err != nil {
 			return config.Config{}, err
 		}
+
+		if err := os.MkdirAll(cfg.ArchiveRoot, 0o700); err != nil {
+			return config.Config{}, err
+		}
+
+		if err := config.Save(cfg); err != nil {
+			return config.Config{}, err
+		}
+	} else if firstRun {
+		// Non-TTY first run: save defaults silently
+		if err := os.MkdirAll(cfg.ArchiveRoot, 0o700); err != nil {
+			return config.Config{}, err
+		}
+
+		if err := config.Save(cfg); err != nil {
+			return config.Config{}, err
+		}
 	}
 
-	if err := os.MkdirAll(cfg.ArchiveRoot, 0o700); err != nil {
-		return config.Config{}, err
-	}
-
-	if err := config.Save(cfg); err != nil {
-		return config.Config{}, err
-	}
-
+	// Ensure DB exists
 	db, err := store.Open(store.DatabasePath(cfg.ArchiveRoot))
 	if err != nil {
 		return config.Config{}, err
