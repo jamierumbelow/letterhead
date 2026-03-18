@@ -58,15 +58,23 @@ func newSyncCommand() *cobra.Command {
 
 			s := store.New(db)
 
-			// Get authenticated client
+			// Get authenticated client (auto-trigger auth if needed)
 			oc, err := auth.LoadOAuthConfig(cfg.AccountEmail)
 			if err != nil {
 				return fmt.Errorf("auth not configured: %w", err)
 			}
 
+			if !oc.HasToken() {
+				fmt.Fprintln(cmd.ErrOrStderr(), "No auth token found. Opening browser to authenticate...")
+				if _, err := oc.Authenticate(ctx); err != nil {
+					return fmt.Errorf("authentication failed: %w", err)
+				}
+				fmt.Fprintln(cmd.ErrOrStderr(), "Authenticated successfully.")
+			}
+
 			httpClient, err := oc.GetAuthenticatedClient(ctx)
 			if err != nil {
-				return fmt.Errorf("not authenticated (run letterhead auth first): %w", err)
+				return err
 			}
 
 			client, err := gmail.NewClient(ctx, httpClient)
