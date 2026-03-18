@@ -108,9 +108,9 @@ func TestToSQLFreetextSearch(t *testing.T) {
 		t.Errorf("SQL does not contain LIMIT/OFFSET:\n%s", sql)
 	}
 
-	// Should have: fts_expr (subquery), fts_expr (outer), limit, offset
-	if len(params) < 4 {
-		t.Errorf("params count = %d, want >= 4", len(params))
+	// Should have: fts_expr, limit, offset
+	if len(params) != 3 {
+		t.Errorf("params count = %d, want 3", len(params))
 	}
 
 	// First param should be the FTS expression

@@ -83,7 +83,7 @@ func ToSQL(q *Query) (string, []interface{}) {
 	// FTS5 freetext search
 	if len(q.Terms) > 0 {
 		ftsExpr := strings.Join(q.Terms, " ")
-		conditions = append(conditions, `m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)`)
+		conditions = append(conditions, `m.gmail_id IN (SELECT messages.gmail_id FROM messages JOIN messages_fts ON messages.rowid = messages_fts.rowid WHERE messages_fts MATCH ?)`)
 		params = append(params, ftsExpr)
 	}
 
@@ -149,24 +149,27 @@ func ToSQL(q *Query) (string, []interface{}) {
 		where = "WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	// Thread-grouped query: group by thread_id, return the latest message per thread
+	// Thread-grouped query using a CTE to first filter matching messages,
+	// then group by thread and pick the latest message per thread.
 	sql := fmt.Sprintf(`
-		SELECT m.thread_id, m.subject, m.snippet, m.from_addr, m.from_name,
-		       m.internal_date, COUNT(*) OVER (PARTITION BY m.thread_id) as msg_count
-		FROM messages m
+		WITH matched AS (
+			SELECT gmail_id, thread_id, subject, snippet, from_addr, from_name, internal_date
+			FROM messages m
+			%s
+		)
+		SELECT m2.thread_id, m2.subject, m2.snippet, m2.from_addr, m2.from_name,
+		       m2.internal_date,
+		       (SELECT COUNT(*) FROM matched WHERE thread_id = m2.thread_id) as msg_count
+		FROM matched m2
 		INNER JOIN (
 			SELECT thread_id, MAX(internal_date) as max_date
-			FROM messages
-			%s
+			FROM matched
 			GROUP BY thread_id
-		) latest ON m.thread_id = latest.thread_id AND m.internal_date = latest.max_date
-		%s
-		ORDER BY m.internal_date DESC
-		LIMIT ? OFFSET ?`, where, where)
+		) latest ON m2.thread_id = latest.thread_id AND m2.internal_date = latest.max_date
+		ORDER BY m2.internal_date DESC
+		LIMIT ? OFFSET ?`, where)
 
-	// Duplicate params for subquery and outer query
-	allParams := make([]interface{}, 0, len(params)*2+2)
-	allParams = append(allParams, params...)
+	allParams := make([]interface{}, 0, len(params)+2)
 	allParams = append(allParams, params...)
 	allParams = append(allParams, q.Limit, q.Offset)
 
