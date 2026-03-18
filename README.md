@@ -7,9 +7,14 @@ Local-first, read-only Gmail mirror for humans and agents. Syncs your inbox to a
 ```bash
 go install github.com/jamierumbelow/letterhead/cmd/letterhead@latest
 
+# authenticate with gmail (one-time)
+gcloud auth application-default login \
+  --scopes=https://www.googleapis.com/auth/gmail.readonly
+
+# set up and sync
 letterhead init
 # edit ~/.config/letterhead/config.toml and set account_email = "you@gmail.com"
-letterhead sync     # opens browser for auth on first run, then syncs inbox
+letterhead sync
 letterhead find quarterly report
 letterhead read <thread-id> --thread
 ```
@@ -52,19 +57,26 @@ Edit `~/.config/letterhead/config.toml` and add your Gmail address:
 account_email = "you@gmail.com"
 ```
 
-### 3. Sync your inbox
+### 3. Authenticate
+
+The easiest way (if you have `gcloud` installed):
+
+```bash
+gcloud auth application-default login \
+  --scopes=https://www.googleapis.com/auth/gmail.readonly
+```
+
+That's it -- letterhead picks up the credentials automatically.
+
+Alternatively, `letterhead auth` will run an interactive OAuth flow if you provide your own client credentials (see [Auth](#authentication) below).
+
+### 4. Sync your inbox
 
 ```bash
 letterhead sync
 ```
 
-On first run this opens your browser for Google OAuth consent (read-only access), then downloads your inbox. Progress is shown live. The sync is resumable -- if interrupted, just run `sync` again.
-
-You can also authenticate separately:
-
-```bash
-letterhead auth
-```
+Downloads your inbox. Progress is shown live. The sync is resumable -- if interrupted, just run `sync` again.
 
 ## Usage
 
@@ -138,14 +150,19 @@ recent_window_weeks = 12
 scheduler_cadence = "1h"
 ```
 
-## OAuth credentials
+## Authentication
 
-Letterhead ships with bundled OAuth credentials so you don't need to create a Google Cloud project. Just run `letterhead auth` or `letterhead sync` and approve access in your browser.
+Letterhead tries these auth methods in order:
 
-If you prefer to use your own credentials (e.g. for higher API quotas), you can either:
+1. **gcloud application-default credentials** (recommended) -- zero config if you have `gcloud`. Just run `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/gmail.readonly` once and letterhead picks it up automatically.
 
-- Place a `credentials.json` (Desktop app type) at `~/.config/letterhead/credentials.json`
-- Set `LETTERHEAD_CLIENT_ID` and `LETTERHEAD_CLIENT_SECRET` environment variables
+2. **Stored OAuth token** -- from a previous `letterhead auth` session.
+
+3. **Interactive OAuth flow** -- opens your browser to authenticate. Requires client credentials from one of:
+   - A `credentials.json` file at `~/.config/letterhead/credentials.json` (create a Desktop app in [Google Cloud Console](https://console.cloud.google.com))
+   - Environment variables `LETTERHEAD_CLIENT_ID` and `LETTERHEAD_CLIENT_SECRET`
+
+For most users, option 1 is the simplest path.
 
 ## How it works
 

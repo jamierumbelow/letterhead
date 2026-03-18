@@ -16,24 +16,117 @@ import (
 	"github.com/jamierumbelow/letterhead/internal/config"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/option"
+	"google.golang.org/api/transport"
 )
 
 const gmailReadOnlyScope = "https://www.googleapis.com/auth/gmail.readonly"
 
 // Bundled OAuth client credentials for the letterhead desktop app.
-// For installed/desktop apps the client secret is not truly secret
-// (see https://developers.google.com/identity/protocols/oauth2/native-app).
-// Users can override these by placing a credentials.json in the config dir
-// or setting LETTERHEAD_CLIENT_ID / LETTERHEAD_CLIENT_SECRET env vars.
+// Set via -ldflags at build time. For installed/desktop apps the client
+// secret is not truly secret.
 var (
-	bundledClientID     = "" // set via -ldflags at build time
-	bundledClientSecret = "" // set via -ldflags at build time
+	bundledClientID     = "" // -X github.com/jamierumbelow/letterhead/internal/auth.bundledClientID=...
+	bundledClientSecret = "" // -X github.com/jamierumbelow/letterhead/internal/auth.bundledClientSecret=...
 )
 
 var (
-	ErrNoCredentials   = errors.New("no OAuth credentials found; set LETTERHEAD_CLIENT_ID and LETTERHEAD_CLIENT_SECRET, or place a credentials.json in ~/.config/letterhead/")
+	ErrNoCredentials   = errors.New("no OAuth credentials found; run `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/gmail.readonly` or set LETTERHEAD_CLIENT_ID and LETTERHEAD_CLIENT_SECRET")
 	ErrAccountRequired = errors.New("account email is required for token storage")
 )
+
+// AuthMethod describes how the client was authenticated.
+type AuthMethod string
+
+const (
+	AuthMethodADC          AuthMethod = "gcloud"
+	AuthMethodStoredToken  AuthMethod = "token"
+	AuthMethodInteractive  AuthMethod = "interactive"
+)
+
+// Result holds an authenticated HTTP client and how it was obtained.
+type Result struct {
+	Client *http.Client
+	Method AuthMethod
+}
+
+// GetClient returns an authenticated HTTP client for Gmail, trying
+// sources in order:
+//  1. gcloud application-default credentials (zero setup)
+//  2. Stored OAuth token from a previous letterhead auth
+//  3. Interactive OAuth flow (opens browser)
+//
+// Steps 2 and 3 require OAuth client credentials, resolved from:
+// credentials.json > env vars > bundled defaults.
+func GetClient(ctx context.Context, accountEmail string) (*Result, error) {
+	// 1. Try gcloud ADC
+	if client, err := tryADC(ctx); err == nil {
+		return &Result{Client: client, Method: AuthMethodADC}, nil
+	}
+
+	// For steps 2 and 3 we need an OAuthConfig
+	oc, err := LoadOAuthConfig(accountEmail)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Try stored token
+	if oc.HasToken() {
+		client, err := oc.GetAuthenticatedClient(ctx)
+		if err == nil {
+			return &Result{Client: client, Method: AuthMethodStoredToken}, nil
+		}
+	}
+
+	// 3. Interactive OAuth flow
+	if _, err := oc.Authenticate(ctx); err != nil {
+		return nil, fmt.Errorf("authentication failed: %w", err)
+	}
+
+	client, err := oc.GetAuthenticatedClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Result{Client: client, Method: AuthMethodInteractive}, nil
+}
+
+// IsAuthenticated checks whether any auth source is available without
+// triggering an interactive flow.
+func IsAuthenticated(ctx context.Context, accountEmail string) (bool, AuthMethod) {
+	if _, err := tryADC(ctx); err == nil {
+		return true, AuthMethodADC
+	}
+
+	if accountEmail == "" {
+		return false, ""
+	}
+
+	oc, err := LoadOAuthConfig(accountEmail)
+	if err != nil {
+		return false, ""
+	}
+
+	if oc.HasToken() {
+		return true, AuthMethodStoredToken
+	}
+
+	return false, ""
+}
+
+// tryADC attempts to get an HTTP client via gcloud application-default
+// credentials. This works if the user has run:
+//   gcloud auth application-default login --scopes=https://www.googleapis.com/auth/gmail.readonly
+func tryADC(ctx context.Context) (*http.Client, error) {
+	client, _, err := transport.NewHTTPClient(ctx,
+		option.WithScopes(gmailReadOnlyScope),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return client, nil
+}
 
 // OAuthConfig holds the resolved OAuth2 configuration.
 type OAuthConfig struct {
@@ -42,7 +135,7 @@ type OAuthConfig struct {
 }
 
 // LoadOAuthConfig resolves OAuth2 credentials from (in order):
-//  1. A credentials.json file in the config directory (user-supplied Google Cloud project)
+//  1. A credentials.json file in the config directory
 //  2. Environment variables LETTERHEAD_CLIENT_ID and LETTERHEAD_CLIENT_SECRET
 //  3. Bundled client credentials compiled into the binary
 func LoadOAuthConfig(accountEmail string) (*OAuthConfig, error) {
@@ -100,10 +193,9 @@ func (oc *OAuthConfig) Authenticate(ctx context.Context) (*oauth2.Token, error) 
 func (oc *OAuthConfig) GetAuthenticatedClient(ctx context.Context) (*http.Client, error) {
 	token, err := oc.loadToken()
 	if err != nil {
-		return nil, fmt.Errorf("no stored token (run letterhead init first): %w", err)
+		return nil, fmt.Errorf("no stored token (run letterhead auth first): %w", err)
 	}
 
-	// oauth2 TokenSource handles refresh automatically
 	return oc.oauth2Config.Client(ctx, token), nil
 }
 

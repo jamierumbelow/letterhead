@@ -98,15 +98,18 @@ func liveStatus(cfg config.Config) (types.StatusOutput, error) {
 }
 
 func accountDisplay(email string) string {
-	if email != "" {
-		// Check if we have a token stored
-		oc, err := auth.LoadOAuthConfig(email)
-		if err == nil && oc.HasToken() {
-			return email
-		}
-		return email + " (not authenticated)"
+	if email == "" {
+		return "not configured"
 	}
-	return "not configured"
+
+	ok, method := auth.IsAuthenticated(context.Background(), email)
+	if ok {
+		if method == auth.AuthMethodADC {
+			return email + " (via gcloud)"
+		}
+		return email
+	}
+	return email + " (not authenticated)"
 }
 
 func phaseZeroStatusOutput(cfg config.Config, dbHealth string) types.StatusOutput {

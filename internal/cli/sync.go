@@ -27,7 +27,7 @@ func newSyncCommand() *cobra.Command {
 			}
 
 			if cfg.AccountEmail == "" {
-				return fmt.Errorf("account_email not set in config")
+				return fmt.Errorf("account_email not set in config; add it to %s", configPathHint())
 			}
 
 			// Acquire single-writer lock
@@ -58,26 +58,19 @@ func newSyncCommand() *cobra.Command {
 
 			s := store.New(db)
 
-			// Get authenticated client (auto-trigger auth if needed)
-			oc, err := auth.LoadOAuthConfig(cfg.AccountEmail)
-			if err != nil {
-				return fmt.Errorf("auth not configured: %w", err)
-			}
-
-			if !oc.HasToken() {
-				fmt.Fprintln(cmd.ErrOrStderr(), "No auth token found. Opening browser to authenticate...")
-				if _, err := oc.Authenticate(ctx); err != nil {
-					return fmt.Errorf("authentication failed: %w", err)
-				}
-				fmt.Fprintln(cmd.ErrOrStderr(), "Authenticated successfully.")
-			}
-
-			httpClient, err := oc.GetAuthenticatedClient(ctx)
+			// Get authenticated client (tries gcloud ADC, stored token, then interactive)
+			result, err := auth.GetClient(ctx, cfg.AccountEmail)
 			if err != nil {
 				return err
 			}
 
-			client, err := gmail.NewClient(ctx, httpClient)
+			if result.Method == auth.AuthMethodInteractive {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Authenticated successfully.")
+			} else if result.Method == auth.AuthMethodADC {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Using gcloud application-default credentials.")
+			}
+
+			client, err := gmail.NewClient(ctx, result.Client)
 			if err != nil {
 				return err
 			}
