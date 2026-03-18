@@ -1,12 +1,9 @@
 package cli
 
 import (
-	"errors"
-
+	"github.com/jamierumbelow/letterhead/internal/output"
 	"github.com/spf13/cobra"
 )
-
-var errConflictingOutputModes = errors.New("--json and --jsonl cannot be used together")
 
 type rootOptions struct {
 	json  bool
@@ -22,11 +19,8 @@ func NewRootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if opts.json && opts.jsonl {
-				return errConflictingOutputModes
-			}
-
-			return nil
+			_, err := output.ModeFromFlags(opts.json, opts.jsonl)
+			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return nil

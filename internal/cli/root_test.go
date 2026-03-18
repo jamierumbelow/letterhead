@@ -3,6 +3,8 @@ package cli
 import (
 	"errors"
 	"testing"
+
+	"github.com/jamierumbelow/letterhead/internal/output"
 )
 
 func TestRootCommandAcceptsSingleOutputMode(t *testing.T) {
@@ -47,7 +49,7 @@ func TestRootCommandRejectsConflictingOutputModes(t *testing.T) {
 	cmd.SetArgs([]string{"--json", "--jsonl"})
 
 	err := cmd.Execute()
-	if !errors.Is(err, errConflictingOutputModes) {
-		t.Fatalf("Execute() error = %v, want %v", err, errConflictingOutputModes)
+	if !errors.Is(err, output.ErrConflictingModes) {
+		t.Fatalf("Execute() error = %v, want %v", err, output.ErrConflictingModes)
 	}
 }
