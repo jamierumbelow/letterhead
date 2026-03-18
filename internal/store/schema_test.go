@@ -19,6 +19,7 @@ func TestOpenAppliesInitialSchema(t *testing.T) {
 
 	expectedTables := []string{
 		"messages",
+		"messages_fts",
 		"message_labels",
 		"message_recipients",
 		"sync_state",
@@ -60,8 +61,8 @@ func TestOpenIsIdempotent(t *testing.T) {
 		t.Fatalf("QueryRow() error = %v", err)
 	}
 
-	if count != 1 {
-		t.Fatalf("migration count = %d, want 1", count)
+	if count != len(migrations) {
+		t.Fatalf("migration count = %d, want %d", count, len(migrations))
 	}
 }
 

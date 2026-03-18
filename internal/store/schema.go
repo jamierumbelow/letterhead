@@ -11,10 +11,10 @@ import (
 	"sort"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
-const sqliteDriver = "sqlite3"
+const sqliteDriver = "sqlite"
 
 const databaseFileName = "letterhead.db"
 
@@ -32,6 +32,7 @@ type Migration struct {
 
 var migrations = []Migration{
 	{Version: 1, Path: "migrations/001_initial.sql"},
+	{Version: 2, Path: "migrations/002_fts5.sql"},
 }
 
 func Open(path string) (*sql.DB, error) {
@@ -63,6 +64,11 @@ func Open(path string) (*sql.DB, error) {
 
 func DatabasePath(archiveRoot string) string {
 	return filepath.Join(archiveRoot, databaseFileName)
+}
+
+func RebuildFTS(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `INSERT INTO messages_fts(messages_fts) VALUES('rebuild')`)
+	return err
 }
 
 func ApplyMigrations(ctx context.Context, db *sql.DB) error {
