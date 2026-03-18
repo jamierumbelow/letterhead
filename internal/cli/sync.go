@@ -57,7 +57,7 @@ func newSyncCommand() *cobra.Command {
 
 			s := store.New(db)
 
-			// Get authenticated client (tries gcloud ADC, stored token, then interactive)
+			// Get authenticated client (uses stored token or triggers interactive OAuth)
 			result, err := auth.GetClient(ctx, cfg.AccountEmail)
 			if err != nil {
 				return err
@@ -65,8 +65,6 @@ func newSyncCommand() *cobra.Command {
 
 			if result.Method == auth.AuthMethodInteractive {
 				fmt.Fprintln(cmd.ErrOrStderr(), "Authenticated successfully.")
-			} else if result.Method == auth.AuthMethodADC {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Using gcloud application-default credentials.")
 			}
 
 			client, err := gmail.NewClient(ctx, result.Client)
