@@ -142,9 +142,9 @@ func formatterFromCommand(cmd *cobra.Command) (output.Mode, output.Formatter, er
 	return mode, formatter, nil
 }
 
-// ensureInitialized silently initializes letterhead with defaults if it
-// hasn't been set up yet. Returns the loaded config. Used by commands
-// that need a working archive (sync, find, read, etc.).
+// ensureInitialized loads the config, or runs a first-time setup wizard
+// if no config exists. In a TTY it prompts interactively; otherwise it
+// uses defaults silently.
 func ensureInitialized() (config.Config, error) {
 	cfg, err := config.Load()
 	if err == nil {
@@ -161,10 +161,17 @@ func ensureInitialized() (config.Config, error) {
 		return config.Config{}, err
 	}
 
-	// First run -- initialize with defaults
+	// First run
 	cfg, err = config.Default()
 	if err != nil {
 		return config.Config{}, err
+	}
+
+	if isTTY() {
+		cfg, err = runSetupWizard(cfg)
+		if err != nil {
+			return config.Config{}, err
+		}
 	}
 
 	if err := os.MkdirAll(cfg.ArchiveRoot, 0o700); err != nil {
@@ -182,6 +189,46 @@ func ensureInitialized() (config.Config, error) {
 	db.Close()
 
 	return cfg, nil
+}
+
+func runSetupWizard(cfg config.Config) (config.Config, error) {
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Println("Welcome to letterhead! Let's get you set up.")
+	fmt.Println()
+
+	// Account email (required for sync)
+	fmt.Print("Gmail address: ")
+	email, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return cfg, err
+	}
+	email = strings.TrimSpace(email)
+	if email != "" {
+		cfg.AccountEmail = email
+	}
+
+	// Archive root (has a sensible default)
+	fmt.Printf("Archive location [%s]: ", cfg.ArchiveRoot)
+	root, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return cfg, err
+	}
+	root = strings.TrimSpace(root)
+	if root != "" {
+		cfg.ArchiveRoot = root
+	}
+
+	fmt.Println()
+	return cfg, nil
+}
+
+func isTTY() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 func promptArchiveRoot(cmd *cobra.Command, defaultArchiveRoot string) (string, error) {
