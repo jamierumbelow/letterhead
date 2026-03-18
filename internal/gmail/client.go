@@ -10,6 +10,11 @@ import (
 
 const userID = "me"
 
+// MessageData wraps a raw Gmail API message for transport between layers.
+type MessageData struct {
+	Raw *gm.Message
+}
+
 // Profile contains basic account information.
 type Profile struct {
 	Email      string
