@@ -11,14 +11,16 @@ go install github.com/jamierumbelow/letterhead/cmd/letterhead@latest
 gcloud auth application-default login \
   --scopes=https://www.googleapis.com/auth/gmail.readonly
 
-# set account_email in config, then sync
-echo 'account_email = "you@gmail.com"' >> ~/.config/letterhead/config.toml
+# first run walks you through setup
 letterhead sync
+# > Welcome to letterhead! Let's get you set up.
+# > Gmail address: you@gmail.com
+# > Archive location [~/.local/share/letterhead/archive]:
+# > Synced 1432 messages (2m14s)
+
 letterhead find quarterly report
 letterhead read <thread-id> --thread
 ```
-
-No explicit `init` needed -- letterhead auto-initialises on first use.
 
 ## Install
 
@@ -36,19 +38,9 @@ go build -o letterhead ./cmd/letterhead
 
 ## Setup
 
-### 1. Set your account email
+On first run, letterhead walks you through setup interactively -- asking for your Gmail address and archive location. You can also run `letterhead init` to do this explicitly, or pass `--archive-root` to customise the location.
 
-Letterhead auto-initialises on first use. Just set your Gmail address:
-
-```bash
-# creates the config dir if needed
-mkdir -p ~/.config/letterhead
-echo 'account_email = "you@gmail.com"' >> ~/.config/letterhead/config.toml
-```
-
-Or if you want to customise the archive location, run `letterhead init --archive-root ~/mail-archive` first.
-
-### 2. Authenticate
+### 1. Authenticate
 
 The easiest way (if you have `gcloud` installed):
 
@@ -61,7 +53,7 @@ That's it -- letterhead picks up the credentials automatically.
 
 Alternatively, `letterhead auth` will run an interactive OAuth flow if you provide your own client credentials (see [Auth](#authentication) below).
 
-### 3. Sync your inbox
+### 2. Sync your inbox
 
 ```bash
 letterhead sync
