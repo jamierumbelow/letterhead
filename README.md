@@ -2,6 +2,18 @@
 
 Local-first, read-only Gmail mirror for humans and agents. Syncs your inbox to a local SQLite database with full-text search.
 
+## Quickstart
+
+```bash
+go install github.com/jamierumbelow/letterhead/cmd/letterhead@latest
+
+letterhead init
+# edit ~/.config/letterhead/config.toml and set account_email = "you@gmail.com"
+letterhead sync     # opens browser for auth on first run, then syncs inbox
+letterhead find quarterly report
+letterhead read <thread-id> --thread
+```
+
 ## Install
 
 ```bash
@@ -18,25 +30,7 @@ go build -o letterhead ./cmd/letterhead
 
 ## Setup
 
-### 1. Create Google Cloud credentials
-
-You need a Google Cloud project with the Gmail API enabled:
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a project (or use an existing one)
-3. Enable the **Gmail API**
-4. Go to **Credentials** > **Create Credentials** > **OAuth client ID**
-5. Choose **Desktop app**, give it a name, and download the JSON
-6. Save it as `~/.config/letterhead/credentials.json`
-
-Alternatively, set environment variables:
-
-```bash
-export LETTERHEAD_CLIENT_ID="your-client-id"
-export LETTERHEAD_CLIENT_SECRET="your-client-secret"
-```
-
-### 2. Initialise the archive
+### 1. Initialise the archive
 
 ```bash
 letterhead init
@@ -50,7 +44,7 @@ You can choose a custom archive location:
 letterhead init --archive-root ~/mail-archive
 ```
 
-### 3. Set your account email
+### 2. Set your account email
 
 Edit `~/.config/letterhead/config.toml` and add your Gmail address:
 
@@ -58,13 +52,19 @@ Edit `~/.config/letterhead/config.toml` and add your Gmail address:
 account_email = "you@gmail.com"
 ```
 
-### 4. Sync your inbox
+### 3. Sync your inbox
 
 ```bash
 letterhead sync
 ```
 
-On first run this opens your browser for OAuth consent, then downloads your inbox. Progress is shown live. The sync is resumable -- if interrupted, just run `sync` again.
+On first run this opens your browser for Google OAuth consent (read-only access), then downloads your inbox. Progress is shown live. The sync is resumable -- if interrupted, just run `sync` again.
+
+You can also authenticate separately:
+
+```bash
+letterhead auth
+```
 
 ## Usage
 
@@ -137,6 +137,15 @@ sync_mode = "recent"           # inbox | recent | full
 recent_window_weeks = 12
 scheduler_cadence = "1h"
 ```
+
+## OAuth credentials
+
+Letterhead ships with bundled OAuth credentials so you don't need to create a Google Cloud project. Just run `letterhead auth` or `letterhead sync` and approve access in your browser.
+
+If you prefer to use your own credentials (e.g. for higher API quotas), you can either:
+
+- Place a `credentials.json` (Desktop app type) at `~/.config/letterhead/credentials.json`
+- Set `LETTERHEAD_CLIENT_ID` and `LETTERHEAD_CLIENT_SECRET` environment variables
 
 ## How it works
 

@@ -20,8 +20,18 @@ import (
 
 const gmailReadOnlyScope = "https://www.googleapis.com/auth/gmail.readonly"
 
+// Bundled OAuth client credentials for the letterhead desktop app.
+// For installed/desktop apps the client secret is not truly secret
+// (see https://developers.google.com/identity/protocols/oauth2/native-app).
+// Users can override these by placing a credentials.json in the config dir
+// or setting LETTERHEAD_CLIENT_ID / LETTERHEAD_CLIENT_SECRET env vars.
 var (
-	ErrNoCredentials   = errors.New("no OAuth credentials found; provide a credentials.json or set LETTERHEAD_CLIENT_ID and LETTERHEAD_CLIENT_SECRET")
+	bundledClientID     = "" // set via -ldflags at build time
+	bundledClientSecret = "" // set via -ldflags at build time
+)
+
+var (
+	ErrNoCredentials   = errors.New("no OAuth credentials found; set LETTERHEAD_CLIENT_ID and LETTERHEAD_CLIENT_SECRET, or place a credentials.json in ~/.config/letterhead/")
 	ErrAccountRequired = errors.New("account email is required for token storage")
 )
 
@@ -31,9 +41,10 @@ type OAuthConfig struct {
 	accountEmail string
 }
 
-// LoadOAuthConfig resolves OAuth2 credentials from one of two sources:
+// LoadOAuthConfig resolves OAuth2 credentials from (in order):
 //  1. A credentials.json file in the config directory (user-supplied Google Cloud project)
 //  2. Environment variables LETTERHEAD_CLIENT_ID and LETTERHEAD_CLIENT_SECRET
+//  3. Bundled client credentials compiled into the binary
 func LoadOAuthConfig(accountEmail string) (*OAuthConfig, error) {
 	accountEmail = strings.TrimSpace(strings.ToLower(accountEmail))
 	if accountEmail == "" {
@@ -46,6 +57,11 @@ func LoadOAuthConfig(accountEmail string) (*OAuthConfig, error) {
 	}
 
 	cfg, err = loadFromEnv()
+	if err == nil {
+		return &OAuthConfig{oauth2Config: cfg, accountEmail: accountEmail}, nil
+	}
+
+	cfg, err = loadBundled()
 	if err == nil {
 		return &OAuthConfig{oauth2Config: cfg, accountEmail: accountEmail}, nil
 	}
@@ -255,6 +271,19 @@ func loadFromEnv() (*oauth2.Config, error) {
 	return &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
+		Endpoint:     google.Endpoint,
+		Scopes:       []string{gmailReadOnlyScope},
+	}, nil
+}
+
+func loadBundled() (*oauth2.Config, error) {
+	if bundledClientID == "" || bundledClientSecret == "" {
+		return nil, ErrNoCredentials
+	}
+
+	return &oauth2.Config{
+		ClientID:     bundledClientID,
+		ClientSecret: bundledClientSecret,
 		Endpoint:     google.Endpoint,
 		Scopes:       []string{gmailReadOnlyScope},
 	}, nil
