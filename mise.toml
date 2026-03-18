@@ -1,0 +1,3 @@
+[tools]
+"cargo:beads_rust" = "latest"
+rust = "latest"
