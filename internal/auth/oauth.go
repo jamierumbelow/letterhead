@@ -29,7 +29,7 @@ var (
 )
 
 var (
-	ErrNoCredentials   = errors.New("no OAuth credentials found; run `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/gmail.readonly` or set LETTERHEAD_CLIENT_ID and LETTERHEAD_CLIENT_SECRET")
+	ErrNoCredentials   = errors.New("no OAuth credentials found; place a credentials.json in ~/.config/letterhead/ or set LETTERHEAD_CLIENT_ID and LETTERHEAD_CLIENT_SECRET (see README for setup)")
 	ErrAccountRequired = errors.New("account email is required for token storage")
 )
 

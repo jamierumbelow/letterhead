@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/jamierumbelow/letterhead/internal/config"
@@ -224,7 +225,20 @@ func runSetupWizard(cfg config.Config) (config.Config, error) {
 		cfg.ArchiveRoot = root
 	}
 
+	configPath, _ := config.ConfigPath()
 	fmt.Println()
+	fmt.Printf("Config saved to %s\n", configPath)
+	fmt.Println()
+	fmt.Println("To authenticate, you need Google OAuth credentials:")
+	fmt.Println("  1. Go to https://console.cloud.google.com")
+	fmt.Println("  2. Create a project and enable the Gmail API")
+	fmt.Println("  3. Create an OAuth client ID (Desktop app)")
+	fmt.Println("  4. Download the JSON and save it as:")
+	fmt.Printf("     %s/credentials.json\n", filepath.Dir(configPath))
+	fmt.Println()
+	fmt.Println("Then run: letterhead sync")
+	fmt.Println()
+
 	return cfg, nil
 }
 
