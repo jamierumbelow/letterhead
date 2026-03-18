@@ -16,6 +16,8 @@ import (
 
 const sqliteDriver = "sqlite3"
 
+const databaseFileName = "letterhead.db"
+
 var (
 	//go:embed migrations/*.sql
 	migrationFiles embed.FS
@@ -57,6 +59,10 @@ func Open(path string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+func DatabasePath(archiveRoot string) string {
+	return filepath.Join(archiveRoot, databaseFileName)
 }
 
 func ApplyMigrations(ctx context.Context, db *sql.DB) error {
