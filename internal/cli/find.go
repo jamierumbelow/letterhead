@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jamierumbelow/letterhead/internal/config"
 	"github.com/jamierumbelow/letterhead/internal/query"
 	"github.com/jamierumbelow/letterhead/internal/store"
 	"github.com/jamierumbelow/letterhead/pkg/types"
@@ -30,9 +29,9 @@ func newFindCommand() *cobra.Command {
 		Use:   "find [search terms...]",
 		Short: "Search the local archive",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			cfg, err := ensureInitialized()
 			if err != nil {
-				return fmt.Errorf("not initialized: %w", err)
+				return err
 			}
 
 			var hasAttach *bool
