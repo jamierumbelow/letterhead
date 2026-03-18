@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jamierumbelow/letterhead/internal/auth"
-	"github.com/jamierumbelow/letterhead/internal/config"
 	"github.com/jamierumbelow/letterhead/internal/gmail"
 	"github.com/jamierumbelow/letterhead/internal/store"
 	"github.com/jamierumbelow/letterhead/internal/syncer"
@@ -21,9 +20,9 @@ func newSyncCommand() *cobra.Command {
 		Use:   "sync",
 		Short: "Sync messages from Gmail",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			cfg, err := ensureInitialized()
 			if err != nil {
-				return fmt.Errorf("not initialized (run letterhead init first): %w", err)
+				return err
 			}
 
 			if cfg.AccountEmail == "" {

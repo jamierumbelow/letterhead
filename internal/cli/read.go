@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jamierumbelow/letterhead/internal/config"
 	"github.com/jamierumbelow/letterhead/internal/output"
 	"github.com/jamierumbelow/letterhead/internal/store"
 	"github.com/jamierumbelow/letterhead/pkg/types"
@@ -26,9 +25,9 @@ func newReadCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			handle := args[0]
 
-			cfg, err := config.Load()
+			cfg, err := ensureInitialized()
 			if err != nil {
-				return fmt.Errorf("not initialized: %w", err)
+				return err
 			}
 
 			db, err := store.Open(store.DatabasePath(cfg.ArchiveRoot))

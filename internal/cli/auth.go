@@ -14,9 +14,9 @@ func newAuthCommand() *cobra.Command {
 		Use:   "auth",
 		Short: "Authenticate with Gmail",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			cfg, err := ensureInitialized()
 			if err != nil {
-				return fmt.Errorf("not initialized (run letterhead init first): %w", err)
+				return err
 			}
 
 			if cfg.AccountEmail == "" {

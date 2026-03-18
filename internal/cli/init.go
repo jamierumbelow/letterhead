@@ -142,6 +142,48 @@ func formatterFromCommand(cmd *cobra.Command) (output.Mode, output.Formatter, er
 	return mode, formatter, nil
 }
 
+// ensureInitialized silently initializes letterhead with defaults if it
+// hasn't been set up yet. Returns the loaded config. Used by commands
+// that need a working archive (sync, find, read, etc.).
+func ensureInitialized() (config.Config, error) {
+	cfg, err := config.Load()
+	if err == nil {
+		// Already initialized -- ensure DB exists
+		db, dbErr := store.Open(store.DatabasePath(cfg.ArchiveRoot))
+		if dbErr != nil {
+			return config.Config{}, dbErr
+		}
+		db.Close()
+		return cfg, nil
+	}
+
+	if !errors.Is(err, os.ErrNotExist) {
+		return config.Config{}, err
+	}
+
+	// First run -- initialize with defaults
+	cfg, err = config.Default()
+	if err != nil {
+		return config.Config{}, err
+	}
+
+	if err := os.MkdirAll(cfg.ArchiveRoot, 0o700); err != nil {
+		return config.Config{}, err
+	}
+
+	if err := config.Save(cfg); err != nil {
+		return config.Config{}, err
+	}
+
+	db, err := store.Open(store.DatabasePath(cfg.ArchiveRoot))
+	if err != nil {
+		return config.Config{}, err
+	}
+	db.Close()
+
+	return cfg, nil
+}
+
 func promptArchiveRoot(cmd *cobra.Command, defaultArchiveRoot string) (string, error) {
 	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Archive root [%s]: ", defaultArchiveRoot); err != nil {
 		return "", err
