@@ -1,4 +1,5 @@
 [tools]
 "cargo:beads_rust" = "latest"
+gcloud = "latest"
 go = "latest"
 rust = "latest"
