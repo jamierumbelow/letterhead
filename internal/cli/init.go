@@ -11,7 +11,6 @@ import (
 	"github.com/jamierumbelow/letterhead/internal/config"
 	"github.com/jamierumbelow/letterhead/internal/output"
 	"github.com/jamierumbelow/letterhead/internal/store"
-	"github.com/jamierumbelow/letterhead/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +49,7 @@ func newInitCommand() *cobra.Command {
 				}
 			}
 
-			if err := formatter.WriteStatus(cmd.OutOrStdout(), phaseZeroStatusOutput(cfg)); err != nil {
+			if err := formatter.WriteStatus(cmd.OutOrStdout(), phaseZeroStatusOutput(cfg, "ok")); err != nil {
 				return err
 			}
 
@@ -141,21 +140,6 @@ func formatterFromCommand(cmd *cobra.Command) (output.Mode, output.Formatter, er
 	}
 
 	return mode, formatter, nil
-}
-
-func phaseZeroStatusOutput(cfg config.Config) types.StatusOutput {
-	return types.StatusOutput{
-		Account:           "not authenticated",
-		ArchivePath:       cfg.ArchiveRoot,
-		SyncMode:          string(cfg.SyncMode),
-		MessageCount:      0,
-		ThreadCount:       0,
-		BootstrapComplete: false,
-		BootstrapProgress: 0,
-		LastSyncAt:        nil,
-		SchedulerState:    "not installed",
-		DBHealth:          "ok",
-	}
 }
 
 func promptArchiveRoot(cmd *cobra.Command, defaultArchiveRoot string) (string, error) {
