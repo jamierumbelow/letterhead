@@ -32,7 +32,7 @@ func TestStatusCommandUsesDefaultPathsWhenNotInitialized(t *testing.T) {
 
 	payload := stdout.String()
 	expectedFields := []string{
-		`"account":"not authenticated"`,
+		`"account":"not configured"`,
 		`"archive_path":"` + defaultCfg.ArchiveRoot + `"`,
 		`"sync_mode":"recent"`,
 		`"db_health":"not initialized"`,
