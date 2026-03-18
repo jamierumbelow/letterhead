@@ -16,8 +16,6 @@ import (
 	"github.com/jamierumbelow/letterhead/internal/config"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
-	"google.golang.org/api/option"
-	"google.golang.org/api/transport"
 )
 
 const gmailReadOnlyScope = "https://www.googleapis.com/auth/gmail.readonly"
@@ -39,9 +37,8 @@ var (
 type AuthMethod string
 
 const (
-	AuthMethodADC          AuthMethod = "gcloud"
-	AuthMethodStoredToken  AuthMethod = "token"
-	AuthMethodInteractive  AuthMethod = "interactive"
+	AuthMethodStoredToken AuthMethod = "token"
+	AuthMethodInteractive AuthMethod = "interactive"
 )
 
 // Result holds an authenticated HTTP client and how it was obtained.
@@ -52,25 +49,18 @@ type Result struct {
 
 // GetClient returns an authenticated HTTP client for Gmail, trying
 // sources in order:
-//  1. gcloud application-default credentials (zero setup)
-//  2. Stored OAuth token from a previous letterhead auth
-//  3. Interactive OAuth flow (opens browser)
+//  1. Stored OAuth token from a previous letterhead auth
+//  2. Interactive OAuth flow (opens browser)
 //
-// Steps 2 and 3 require OAuth client credentials, resolved from:
+// Both require OAuth client credentials, resolved from:
 // credentials.json > env vars > bundled defaults.
 func GetClient(ctx context.Context, accountEmail string) (*Result, error) {
-	// 1. Try gcloud ADC
-	if client, err := tryADC(ctx); err == nil {
-		return &Result{Client: client, Method: AuthMethodADC}, nil
-	}
-
-	// For steps 2 and 3 we need an OAuthConfig
 	oc, err := LoadOAuthConfig(accountEmail)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Try stored token
+	// 1. Try stored token
 	if oc.HasToken() {
 		client, err := oc.GetAuthenticatedClient(ctx)
 		if err == nil {
@@ -78,7 +68,7 @@ func GetClient(ctx context.Context, accountEmail string) (*Result, error) {
 		}
 	}
 
-	// 3. Interactive OAuth flow
+	// 2. Interactive OAuth flow
 	if _, err := oc.Authenticate(ctx); err != nil {
 		return nil, fmt.Errorf("authentication failed: %w", err)
 	}
@@ -91,41 +81,19 @@ func GetClient(ctx context.Context, accountEmail string) (*Result, error) {
 	return &Result{Client: client, Method: AuthMethodInteractive}, nil
 }
 
-// IsAuthenticated checks whether any auth source is available without
+// IsAuthenticated checks whether a stored token exists without
 // triggering an interactive flow.
-func IsAuthenticated(ctx context.Context, accountEmail string) (bool, AuthMethod) {
-	if _, err := tryADC(ctx); err == nil {
-		return true, AuthMethodADC
-	}
-
+func IsAuthenticated(accountEmail string) bool {
 	if accountEmail == "" {
-		return false, ""
+		return false
 	}
 
 	oc, err := LoadOAuthConfig(accountEmail)
 	if err != nil {
-		return false, ""
+		return false
 	}
 
-	if oc.HasToken() {
-		return true, AuthMethodStoredToken
-	}
-
-	return false, ""
-}
-
-// tryADC attempts to get an HTTP client via gcloud application-default
-// credentials. This works if the user has run:
-//   gcloud auth application-default login --scopes=https://www.googleapis.com/auth/gmail.readonly
-func tryADC(ctx context.Context) (*http.Client, error) {
-	client, _, err := transport.NewHTTPClient(ctx,
-		option.WithScopes(gmailReadOnlyScope),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return client, nil
+	return oc.HasToken()
 }
 
 // OAuthConfig holds the resolved OAuth2 configuration.

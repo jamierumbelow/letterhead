@@ -102,11 +102,7 @@ func accountDisplay(email string) string {
 		return "not configured"
 	}
 
-	ok, method := auth.IsAuthenticated(context.Background(), email)
-	if ok {
-		if method == auth.AuthMethodADC {
-			return email + " (via gcloud)"
-		}
+	if auth.IsAuthenticated(email) {
 		return email
 	}
 	return email + " (not authenticated)"
