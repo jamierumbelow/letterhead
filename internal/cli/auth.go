@@ -23,22 +23,23 @@ func newAuthCommand() *cobra.Command {
 				return fmt.Errorf("account_email not set in config; add it to %s", configPathHint())
 			}
 
-			oc, err := auth.LoadOAuthConfig(cfg.AccountEmail)
-			if err != nil {
-				return err
-			}
-
-			if oc.HasToken() {
-				fmt.Fprintln(cmd.OutOrStdout(), "Already authenticated as "+cfg.AccountEmail)
+			// Check if already authenticated via any method
+			if ok, method := auth.IsAuthenticated(context.Background(), cfg.AccountEmail); ok {
+				switch method {
+				case auth.AuthMethodADC:
+					fmt.Fprintln(cmd.OutOrStdout(), "Authenticated via gcloud application-default credentials.")
+				default:
+					fmt.Fprintln(cmd.OutOrStdout(), "Already authenticated as "+cfg.AccountEmail)
+				}
 				return nil
 			}
 
-			fmt.Fprintln(cmd.ErrOrStderr(), "Opening browser to authenticate...")
-
-			_, err = oc.Authenticate(context.Background())
+			// Try to get a client (will trigger interactive flow if needed)
+			result, err := auth.GetClient(context.Background(), cfg.AccountEmail)
 			if err != nil {
-				return fmt.Errorf("authentication failed: %w", err)
+				return err
 			}
+			_ = result
 
 			fmt.Fprintln(cmd.OutOrStdout(), "Authenticated as "+cfg.AccountEmail)
 			return nil
