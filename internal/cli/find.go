@@ -94,6 +94,8 @@ func newFindCommand() *cobra.Command {
 			output := types.FindOutput{
 				Results:    results,
 				TotalCount: len(results),
+				Limit:      flags.limit,
+				Offset:     flags.offset,
 				QueryMS:    elapsed.Milliseconds(),
 			}
 

@@ -90,24 +90,58 @@ func (humanFormatter) WriteFind(w io.Writer, output types.FindOutput) error {
 		return err
 	}
 
+	// Header
+	fmt.Fprintf(w, "%d results (%dms)\n\n", output.TotalCount, output.QueryMS)
+
 	for _, result := range output.Results {
+		subject := result.Subject
+		if len(subject) > 60 {
+			subject = subject[:57] + "..."
+		}
+
+		date := relativeDate(result.LatestAt)
+
 		line := fmt.Sprintf(
-			"%s  %s  (%d)  %s",
-			result.LatestAt.Format("2006-01-02"),
-			result.Subject,
+			"%-8s  %-60s  (%d)  %s",
+			date,
+			subject,
 			result.MessageCount,
 			strings.Join(result.Participants, ", "),
 		)
-		if result.Snippet != "" {
-			line += "  |  " + result.Snippet
-		}
 
 		if _, err := fmt.Fprintln(w, line); err != nil {
 			return err
 		}
 	}
 
+	// Pagination footer
+	if output.Offset > 0 || output.TotalCount > output.Limit {
+		start := output.Offset + 1
+		end := output.Offset + len(output.Results)
+		fmt.Fprintf(w, "\nShowing %d-%d of %d\n", start, end, output.TotalCount)
+	}
+
 	return nil
+}
+
+func relativeDate(t time.Time) string {
+	now := time.Now()
+	diff := now.Sub(t)
+
+	switch {
+	case diff < time.Minute:
+		return "now"
+	case diff < time.Hour:
+		return fmt.Sprintf("%dm ago", int(diff.Minutes()))
+	case diff < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(diff.Hours()))
+	case diff < 7*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(diff.Hours()/24))
+	case diff < 30*24*time.Hour:
+		return fmt.Sprintf("%dw ago", int(diff.Hours()/(24*7)))
+	default:
+		return t.Format("Jan 02")
+	}
 }
 
 func (humanFormatter) WriteRead(w io.Writer, output types.ReadOutput) error {
