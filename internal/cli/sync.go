@@ -93,6 +93,9 @@ func newSyncCommand() *cobra.Command {
 
 	cmd.Flags().BoolVar(&repair, "repair", false, "Force a repair sync (re-diff against Gmail)")
 
+	cmd.AddCommand(newSyncInstallCommand())
+	cmd.AddCommand(newSyncUninstallCommand())
+
 	return cmd
 }
 

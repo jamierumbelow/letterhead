@@ -311,6 +311,11 @@ func (s *Store) StartSyncRun(ctx context.Context, run *SyncRun) (int64, error) {
 	return res.LastInsertId()
 }
 
+// RebuildFTS rebuilds the FTS5 index from scratch.
+func (s *Store) RebuildFTS(ctx context.Context) error {
+	return RebuildFTS(ctx, s.db)
+}
+
 // AllMessageIDs returns every gmail_id in the store.
 func (s *Store) AllMessageIDs(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT gmail_id FROM messages`)
