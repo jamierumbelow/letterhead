@@ -87,7 +87,11 @@ func newSyncCommand() *cobra.Command {
 				return runIncrementalSync(ctx, cmd, client, s, cfg.AccountEmail)
 			}
 
-			return runBootstrapSync(ctx, cmd, client, s, cfg.AccountEmail)
+			query := syncer.QueryForMode(string(cfg.SyncMode), cfg.RecentWindowWeeks)
+			if cfg.SyncMode == "full" {
+				fmt.Fprintln(cmd.ErrOrStderr(), "Full sync mode: this may take a long time for large mailboxes.")
+			}
+			return runBootstrapSync(ctx, cmd, client, s, cfg.AccountEmail, query)
 		},
 	}
 
@@ -99,7 +103,7 @@ func newSyncCommand() *cobra.Command {
 	return cmd
 }
 
-func runBootstrapSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client, s *store.Store, email string) error {
+func runBootstrapSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client, s *store.Store, email string, query string) error {
 	runID, err := s.StartSyncRun(ctx, &store.SyncRun{
 		AccountID: email,
 		StartedAt: time.Now().UTC(),
@@ -120,6 +124,7 @@ func runBootstrapSync(ctx context.Context, cmd *cobra.Command, client *gmail.Cli
 	}
 
 	bcfg := syncer.DefaultBootstrapConfig(email)
+	bcfg.Query = query
 	err = syncer.Bootstrap(ctx, client, s, bcfg, progress)
 
 	fmt.Fprintln(cmd.ErrOrStderr()) // newline after progress
