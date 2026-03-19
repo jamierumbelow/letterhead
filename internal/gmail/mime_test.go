@@ -281,6 +281,107 @@ func TestParseAddress(t *testing.T) {
 	}
 }
 
+func TestNormalizeNoContentType(t *testing.T) {
+	t.Parallel()
+
+	raw := &gm.Message{
+		Id:           "msg_noct",
+		ThreadId:     "thread_1",
+		InternalDate: 1742280000000,
+		Payload: &gm.MessagePart{
+			MimeType: "", // no content-type
+			Headers: []*gm.MessagePartHeader{
+				{Name: "Subject", Value: "No CT"},
+				{Name: "From", Value: "sender@example.com"},
+			},
+			Body: &gm.MessagePartBody{Data: b64url("Just plain text")},
+		},
+	}
+
+	msg := NormalizeMessage(raw)
+
+	if msg.PlainBody != "Just plain text" {
+		t.Errorf("PlainBody = %q, want %q", msg.PlainBody, "Just plain text")
+	}
+}
+
+func TestNormalizeInlineImage(t *testing.T) {
+	t.Parallel()
+
+	raw := &gm.Message{
+		Id:           "msg_inline",
+		ThreadId:     "thread_1",
+		InternalDate: 1742280000000,
+		Payload: &gm.MessagePart{
+			MimeType: "multipart/related",
+			Headers: []*gm.MessagePartHeader{
+				{Name: "Subject", Value: "Inline"},
+				{Name: "From", Value: "sender@example.com"},
+			},
+			Parts: []*gm.MessagePart{
+				{
+					MimeType: "text/html",
+					Body:     &gm.MessagePartBody{Data: b64url("<p>See image below</p>")},
+				},
+				{
+					MimeType: "image/png",
+					Filename: "inline.png",
+					PartId:   "1",
+					Headers: []*gm.MessagePartHeader{
+						{Name: "Content-Disposition", Value: "inline; filename=\"inline.png\""},
+					},
+					Body: &gm.MessagePartBody{Size: 1024},
+				},
+			},
+		},
+	}
+
+	msg := NormalizeMessage(raw)
+
+	// Inline image should still appear as attachment metadata
+	if len(msg.Attachments) != 1 {
+		t.Fatalf("Attachments count = %d, want 1", len(msg.Attachments))
+	}
+	if msg.Attachments[0].Filename != "inline.png" {
+		t.Errorf("Attachment filename = %q", msg.Attachments[0].Filename)
+	}
+}
+
+func TestNormalizeDeeplyNested(t *testing.T) {
+	t.Parallel()
+
+	// Build a 10-level deep nested multipart with text at the leaf
+	leaf := &gm.MessagePart{
+		MimeType: "text/plain",
+		Body:     &gm.MessagePartBody{Data: b64url("Deep leaf")},
+	}
+
+	current := leaf
+	for range 10 {
+		current = &gm.MessagePart{
+			MimeType: "multipart/mixed",
+			Parts:    []*gm.MessagePart{current},
+		}
+	}
+
+	raw := &gm.Message{
+		Id:           "msg_deep",
+		ThreadId:     "thread_1",
+		InternalDate: 1742280000000,
+		Payload:      current,
+	}
+	raw.Payload.Headers = []*gm.MessagePartHeader{
+		{Name: "Subject", Value: "Deep"},
+		{Name: "From", Value: "sender@example.com"},
+	}
+
+	msg := NormalizeMessage(raw)
+
+	if msg.PlainBody != "Deep leaf" {
+		t.Errorf("PlainBody = %q, want %q", msg.PlainBody, "Deep leaf")
+	}
+}
+
 func TestNormalizeNestedMultipart(t *testing.T) {
 	t.Parallel()
 
