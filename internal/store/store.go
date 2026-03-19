@@ -311,6 +311,46 @@ func (s *Store) StartSyncRun(ctx context.Context, run *SyncRun) (int64, error) {
 	return res.LastInsertId()
 }
 
+// AllMessageIDs returns every gmail_id in the store.
+func (s *Store) AllMessageIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT gmail_id FROM messages`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// DeleteMessage removes a message and its associated labels and recipients.
+func (s *Store) DeleteMessage(ctx context.Context, gmailID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint: errcheck
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_labels WHERE gmail_id = ?`, gmailID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_recipients WHERE gmail_id = ?`, gmailID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE gmail_id = ?`, gmailID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // FinishSyncRun records the outcome of a completed sync run.
 func (s *Store) FinishSyncRun(ctx context.Context, id int64, status string, count int, errMsg string) error {
 	_, err := s.db.ExecContext(ctx, `

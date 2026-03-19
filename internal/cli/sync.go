@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,6 +17,8 @@ import (
 )
 
 func newSyncCommand() *cobra.Command {
+	var repair bool
+
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Sync messages from Gmail",
@@ -72,43 +75,127 @@ func newSyncCommand() *cobra.Command {
 				return err
 			}
 
-			// Record sync run
-			runID, err := s.StartSyncRun(ctx, &store.SyncRun{
-				AccountID: cfg.AccountEmail,
-				StartedAt: time.Now().UTC(),
-				Mode:      string(cfg.SyncMode),
-				Status:    "running",
-			})
-			if err != nil {
-				return err
+			// Check sync state to decide bootstrap vs incremental vs repair
+			syncState, _ := s.GetSyncState(ctx, cfg.AccountEmail)
+			bootstrapComplete := syncState != nil && syncState.BootstrapComplete
+
+			if repair {
+				return runRepairSync(ctx, cmd, client, s, cfg.AccountEmail)
 			}
 
-			start := time.Now()
-			totalSynced := 0
-
-			progress := func(synced int) {
-				totalSynced = synced
-				elapsed := time.Since(start).Truncate(time.Second)
-				fmt.Fprintf(cmd.ErrOrStderr(), "\rSynced %d messages (%s)", synced, elapsed)
+			if bootstrapComplete {
+				return runIncrementalSync(ctx, cmd, client, s, cfg.AccountEmail)
 			}
 
-			bcfg := syncer.DefaultBootstrapConfig(cfg.AccountEmail)
-			err = syncer.Bootstrap(ctx, client, s, bcfg, progress)
-
-			fmt.Fprintln(cmd.ErrOrStderr()) // newline after progress
-
-			if err != nil {
-				_ = s.FinishSyncRun(ctx, runID, "error", totalSynced, err.Error())
-				return err
-			}
-
-			elapsed := time.Since(start).Truncate(time.Second)
-			_ = s.FinishSyncRun(ctx, runID, "ok", totalSynced, "")
-
-			fmt.Fprintf(cmd.OutOrStdout(), "Sync complete: %d messages in %s\n", totalSynced, elapsed)
-			return nil
+			return runBootstrapSync(ctx, cmd, client, s, cfg.AccountEmail)
 		},
 	}
 
+	cmd.Flags().BoolVar(&repair, "repair", false, "Force a repair sync (re-diff against Gmail)")
+
 	return cmd
+}
+
+func runBootstrapSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client, s *store.Store, email string) error {
+	runID, err := s.StartSyncRun(ctx, &store.SyncRun{
+		AccountID: email,
+		StartedAt: time.Now().UTC(),
+		Mode:      "bootstrap",
+		Status:    "running",
+	})
+	if err != nil {
+		return err
+	}
+
+	start := time.Now()
+	totalSynced := 0
+
+	progress := func(synced int) {
+		totalSynced = synced
+		elapsed := time.Since(start).Truncate(time.Second)
+		fmt.Fprintf(cmd.ErrOrStderr(), "\rSynced %d messages (%s)", synced, elapsed)
+	}
+
+	bcfg := syncer.DefaultBootstrapConfig(email)
+	err = syncer.Bootstrap(ctx, client, s, bcfg, progress)
+
+	fmt.Fprintln(cmd.ErrOrStderr()) // newline after progress
+
+	if err != nil {
+		_ = s.FinishSyncRun(ctx, runID, "error", totalSynced, err.Error())
+		return err
+	}
+
+	elapsed := time.Since(start).Truncate(time.Second)
+	_ = s.FinishSyncRun(ctx, runID, "ok", totalSynced, "")
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Sync complete: %d messages in %s\n", totalSynced, elapsed)
+	return nil
+}
+
+func runIncrementalSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client, s *store.Store, email string) error {
+	runID, err := s.StartSyncRun(ctx, &store.SyncRun{
+		AccountID: email,
+		StartedAt: time.Now().UTC(),
+		Mode:      "incremental",
+		Status:    "running",
+	})
+	if err != nil {
+		return err
+	}
+
+	start := time.Now()
+
+	result, err := syncer.Incremental(ctx, client, s, email)
+	if err != nil {
+		if errors.Is(err, gmail.ErrHistoryExpired) {
+			fmt.Fprintln(cmd.ErrOrStderr(), "History expired. Running repair sync...")
+			_ = s.FinishSyncRun(ctx, runID, "expired", 0, "history expired, falling back to repair")
+			return runRepairSync(ctx, cmd, client, s, email)
+		}
+		_ = s.FinishSyncRun(ctx, runID, "error", 0, err.Error())
+		return err
+	}
+
+	elapsed := time.Since(start).Truncate(time.Second)
+	_ = s.FinishSyncRun(ctx, runID, "ok", result.Added, "")
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Sync complete: %d added, %d deleted, %d label changes in %s\n",
+		result.Added, result.Deleted, result.Labels, elapsed)
+	return nil
+}
+
+func runRepairSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client, s *store.Store, email string) error {
+	runID, err := s.StartSyncRun(ctx, &store.SyncRun{
+		AccountID: email,
+		StartedAt: time.Now().UTC(),
+		Mode:      "repair",
+		Status:    "running",
+	})
+	if err != nil {
+		return err
+	}
+
+	start := time.Now()
+
+	progress := func(synced int) {
+		elapsed := time.Since(start).Truncate(time.Second)
+		fmt.Fprintf(cmd.ErrOrStderr(), "\rRepair: fetched %d messages (%s)", synced, elapsed)
+	}
+
+	result, err := syncer.RepairSync(ctx, client, s, email, "label:INBOX", progress)
+
+	fmt.Fprintln(cmd.ErrOrStderr()) // newline after progress
+
+	if err != nil {
+		_ = s.FinishSyncRun(ctx, runID, "error", 0, err.Error())
+		return err
+	}
+
+	elapsed := time.Since(start).Truncate(time.Second)
+	_ = s.FinishSyncRun(ctx, runID, "ok", result.Added, "")
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Repair complete: %d added, %d deleted in %s\n",
+		result.Added, result.Deleted, elapsed)
+	return nil
 }
