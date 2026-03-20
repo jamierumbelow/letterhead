@@ -10,6 +10,7 @@ import (
 
 	"github.com/jamierumbelow/letterhead/internal/auth"
 	"github.com/jamierumbelow/letterhead/internal/gmail"
+	"github.com/jamierumbelow/letterhead/internal/mailclient"
 	"github.com/jamierumbelow/letterhead/internal/store"
 	"github.com/jamierumbelow/letterhead/internal/syncer"
 	"github.com/spf13/cobra"
@@ -72,6 +73,8 @@ func newSyncCommand() *cobra.Command {
 				return err
 			}
 
+			adapter := mailclient.NewGmailAdapter(client)
+
 			// Record sync run
 			runID, err := s.StartSyncRun(ctx, &store.SyncRun{
 				AccountID: cfg.AccountEmail,
@@ -93,7 +96,7 @@ func newSyncCommand() *cobra.Command {
 			}
 
 			bcfg := syncer.DefaultBootstrapConfig(cfg.AccountEmail)
-			err = syncer.Bootstrap(ctx, client, s, bcfg, progress)
+			err = syncer.Bootstrap(ctx, adapter, s, bcfg, progress)
 
 			fmt.Fprintln(cmd.ErrOrStderr()) // newline after progress
 

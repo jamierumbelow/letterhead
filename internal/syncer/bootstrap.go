@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jamierumbelow/letterhead/internal/gmail"
+	"github.com/jamierumbelow/letterhead/internal/mailclient"
 	"github.com/jamierumbelow/letterhead/internal/store"
 )
 
@@ -36,41 +36,28 @@ type ProgressFunc func(synced int)
 
 // Bootstrap performs the initial inbox sync. It is resumable: on restart it
 // skips messages already in the local store.
-func Bootstrap(ctx context.Context, client *gmail.Client, s *store.Store, cfg BootstrapConfig, progress ProgressFunc) error {
+func Bootstrap(ctx context.Context, client mailclient.MailClient, s *store.Store, cfg BootstrapConfig, progress ProgressFunc) error {
 	if progress == nil {
 		progress = func(int) {}
 	}
 
-	// Step 1: Capture current historyId from Gmail profile
-	profile, err := gmail.Retry(ctx, gmail.DefaultRetryConfig(), func() (*gmail.Profile, error) {
-		return client.GetProfile(ctx)
-	})
+	// Step 1: Capture current historyId from profile
+	profile, err := client.GetProfile(ctx)
 	if err != nil {
 		return fmt.Errorf("get profile: %w", err)
 	}
 
 	// Step 2: List all inbox message IDs
-	type listResult struct {
-		IDs      []string
-		NextPage string
-	}
-
 	var allIDs []string
 	pageToken := ""
 	for {
-		result, err := gmail.Retry(ctx, gmail.DefaultRetryConfig(), func() (listResult, error) {
-			ids, np, e := client.ListMessages(ctx, "label:INBOX", pageToken)
-			if e != nil {
-				return listResult{}, e
-			}
-			return listResult{IDs: ids, NextPage: np}, nil
-		})
+		ids, nextPage, err := client.ListMessageIDs(ctx, "INBOX", pageToken)
 		if err != nil {
 			return fmt.Errorf("list messages: %w", err)
 		}
 
-		allIDs = append(allIDs, result.IDs...)
-		pageToken = result.NextPage
+		allIDs = append(allIDs, ids...)
+		pageToken = nextPage
 
 		if pageToken == "" {
 			break
@@ -144,13 +131,13 @@ func Bootstrap(ctx context.Context, client *gmail.Client, s *store.Store, cfg Bo
 	return nil
 }
 
-func fetchAndStoreBatch(ctx context.Context, client *gmail.Client, s *store.Store, ids []string, workers int) error {
+func fetchAndStoreBatch(ctx context.Context, client mailclient.MailClient, s *store.Store, ids []string, workers int) error {
 	if workers <= 0 {
 		workers = workerCount
 	}
 
 	type result struct {
-		msg *gmail.MessageData
+		id  string
 		err error
 	}
 
@@ -163,14 +150,16 @@ func fetchAndStoreBatch(ctx context.Context, client *gmail.Client, s *store.Stor
 		go func() {
 			defer wg.Done()
 			for id := range idCh {
-				raw, err := gmail.Retry(ctx, gmail.DefaultRetryConfig(), func() (*gmail.MessageData, error) {
-					msg, e := client.GetMessage(ctx, id, "full")
-					if e != nil {
-						return nil, e
-					}
-					return &gmail.MessageData{Raw: msg}, nil
-				})
-				resultCh <- result{msg: raw, err: err}
+				msg, err := client.FetchMessage(ctx, id)
+				if err != nil {
+					resultCh <- result{id: id, err: err}
+					continue
+				}
+				if err := s.UpsertMessage(ctx, msg); err != nil {
+					resultCh <- result{id: id, err: err}
+					continue
+				}
+				resultCh <- result{id: id}
 			}
 		}()
 	}
@@ -188,11 +177,6 @@ func fetchAndStoreBatch(ctx context.Context, client *gmail.Client, s *store.Stor
 	for res := range resultCh {
 		if res.err != nil {
 			return res.err
-		}
-
-		normalized := gmail.NormalizeMessage(res.msg.Raw)
-		if err := s.UpsertMessage(ctx, normalized); err != nil {
-			return err
 		}
 	}
 
