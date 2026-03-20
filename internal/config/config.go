@@ -30,19 +30,28 @@ const (
 	SyncModeFull   SyncMode = "full"
 )
 
+type AuthMethod string
+
+const (
+	AuthMethodOAuth       AuthMethod = "oauth"
+	AuthMethodAppPassword AuthMethod = "apppassword"
+)
+
 var (
 	ErrAccountEmailRequired = errors.New("account email is required")
 	ErrInvalidSyncMode      = errors.New("sync mode must be inbox, recent, or full")
 	ErrInvalidRecentWindow  = errors.New("recent window weeks must be greater than zero")
 	ErrInvalidCadence       = errors.New("scheduler cadence must be a valid duration")
+	ErrInvalidAuthMethod    = errors.New("auth method must be oauth or apppassword")
 )
 
 type Config struct {
-	ArchiveRoot       string   `toml:"archive_root"`
-	AccountEmail      string   `toml:"account_email"`
-	SyncMode          SyncMode `toml:"sync_mode"`
-	RecentWindowWeeks int      `toml:"recent_window_weeks"`
-	SchedulerCadence  string   `toml:"scheduler_cadence"`
+	ArchiveRoot       string     `toml:"archive_root"`
+	AccountEmail      string     `toml:"account_email"`
+	AuthMethod        AuthMethod `toml:"auth_method"`
+	SyncMode          SyncMode   `toml:"sync_mode"`
+	RecentWindowWeeks int        `toml:"recent_window_weeks"`
+	SchedulerCadence  string     `toml:"scheduler_cadence"`
 }
 
 func Default() (Config, error) {
@@ -133,6 +142,10 @@ func Save(cfg Config) error {
 }
 
 func (c Config) Validate() error {
+	if !c.AuthMethod.valid() {
+		return fmt.Errorf("%w: %q", ErrInvalidAuthMethod, c.AuthMethod)
+	}
+
 	if !c.SyncMode.valid() {
 		return fmt.Errorf("%w: %q", ErrInvalidSyncMode, c.SyncMode)
 	}
@@ -196,6 +209,10 @@ func TokenPath(accountEmail string) (string, error) {
 }
 
 func (c *Config) applyDefaults() {
+	if c.AuthMethod == "" {
+		c.AuthMethod = AuthMethodOAuth
+	}
+
 	if c.SyncMode == "" {
 		c.SyncMode = SyncModeRecent
 	}
@@ -213,6 +230,32 @@ func (c *Config) applyDefaults() {
 			c.ArchiveRoot = archiveRoot
 		}
 	}
+}
+
+func (m AuthMethod) valid() bool {
+	switch m {
+	case AuthMethodOAuth, AuthMethodAppPassword:
+		return true
+	default:
+		return false
+	}
+}
+
+func AppPasswordPath(accountEmail string) (string, error) {
+	accountEmail = strings.TrimSpace(strings.ToLower(accountEmail))
+	if accountEmail == "" {
+		return "", ErrAccountEmailRequired
+	}
+
+	configHome, err := xdgConfigHome()
+	if err != nil {
+		return "", err
+	}
+
+	sum := sha256.Sum256([]byte(accountEmail))
+	fileName := "apppassword_" + hex.EncodeToString(sum[:]) + ".txt"
+
+	return filepath.Join(configHome, configDirName, fileName), nil
 }
 
 func (m SyncMode) valid() bool {
