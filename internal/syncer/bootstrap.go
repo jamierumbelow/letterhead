@@ -116,15 +116,26 @@ func Bootstrap(ctx context.Context, client mailclient.MailClient, s *store.Store
 		progress(totalSynced)
 	}
 
-	// Step 7: Mark bootstrap complete
+	// Step 7: Mark bootstrap complete, including IMAP state if applicable
 	now := time.Now().UTC()
-	if err := s.SetSyncState(ctx, &store.SyncState{
+	finalState := &store.SyncState{
 		AccountID:         cfg.AccountEmail,
 		HistoryID:         profile.HistoryID,
 		BootstrapComplete: true,
 		MessagesSynced:    totalSynced,
 		LastSyncAt:        &now,
-	}); err != nil {
+	}
+
+	if imapState, ok := client.(interface {
+		UIDValidity() uint32
+		LastUID() uint32
+	}); ok {
+		finalState.UIDValidity = imapState.UIDValidity()
+		finalState.LastUID = imapState.LastUID()
+		finalState.AuthMethod = "apppassword"
+	}
+
+	if err := s.SetSyncState(ctx, finalState); err != nil {
 		return fmt.Errorf("finalize sync state: %w", err)
 	}
 

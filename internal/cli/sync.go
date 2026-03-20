@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jamierumbelow/letterhead/internal/auth"
+	"github.com/jamierumbelow/letterhead/internal/config"
 	"github.com/jamierumbelow/letterhead/internal/gmail"
+	"github.com/jamierumbelow/letterhead/internal/imapclient"
 	"github.com/jamierumbelow/letterhead/internal/mailclient"
 	"github.com/jamierumbelow/letterhead/internal/store"
 	"github.com/jamierumbelow/letterhead/internal/syncer"
@@ -19,7 +22,7 @@ import (
 func newSyncCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Sync messages from Gmail",
+		Short: "Sync messages from Gmail or IMAP",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := ensureInitialized()
 			if err != nil {
@@ -58,22 +61,42 @@ func newSyncCommand() *cobra.Command {
 
 			s := store.New(db)
 
-			// Get authenticated client (uses stored token or triggers interactive OAuth)
-			result, err := auth.GetClient(ctx, cfg.AccountEmail)
-			if err != nil {
-				return err
-			}
+			// Create the appropriate mail client based on auth method
+			var adapter mailclient.MailClient
 
-			if result.Method == auth.AuthMethodInteractive {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Authenticated successfully.")
-			}
+			switch cfg.AuthMethod {
+			case config.AuthMethodAppPassword:
+				password, err := loadAppPassword(cfg.AccountEmail)
+				if err != nil {
+					return err
+				}
 
-			client, err := gmail.NewClient(ctx, result.Client)
-			if err != nil {
-				return err
-			}
+				imapClient := imapclient.New(cfg.AccountEmail, password)
+				if err := imapClient.Connect(ctx); err != nil {
+					return err
+				}
+				defer imapClient.Close()
 
-			adapter := mailclient.NewGmailAdapter(client)
+				adapter = mailclient.NewIMAPAdapter(imapClient, cfg.AccountEmail)
+				fmt.Fprintln(cmd.ErrOrStderr(), "Connected via IMAP.")
+
+			default: // oauth
+				result, err := auth.GetClient(ctx, cfg.AccountEmail)
+				if err != nil {
+					return err
+				}
+
+				if result.Method == auth.AuthMethodInteractive {
+					fmt.Fprintln(cmd.ErrOrStderr(), "Authenticated successfully.")
+				}
+
+				gmailClient, err := gmail.NewClient(ctx, result.Client)
+				if err != nil {
+					return err
+				}
+
+				adapter = mailclient.NewGmailAdapter(gmailClient)
+			}
 
 			// Record sync run
 			runID, err := s.StartSyncRun(ctx, &store.SyncRun{
@@ -114,4 +137,23 @@ func newSyncCommand() *cobra.Command {
 	}
 
 	return cmd
+}
+
+func loadAppPassword(accountEmail string) (string, error) {
+	path, err := config.AppPasswordPath(accountEmail)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("no app password found at %s; run letterhead init to set up", path)
+	}
+
+	password := strings.TrimSpace(string(data))
+	if password == "" {
+		return "", fmt.Errorf("app password file is empty at %s", path)
+	}
+
+	return password, nil
 }
