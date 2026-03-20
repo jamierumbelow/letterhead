@@ -225,19 +225,75 @@ func runSetupWizard(cfg config.Config) (config.Config, error) {
 		cfg.ArchiveRoot = root
 	}
 
+	// Auth method choice
+	fmt.Println()
+	fmt.Println("Auth method:")
+	fmt.Println("  1. App password (recommended - quick setup)")
+	fmt.Println("  2. Google OAuth (requires a Google Cloud project)")
+	fmt.Print("Choice [1]: ")
+	choice, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return cfg, err
+	}
+	choice = strings.TrimSpace(choice)
+
 	configPath, _ := config.ConfigPath()
-	fmt.Println()
-	fmt.Printf("Config saved to %s\n", configPath)
-	fmt.Println()
-	fmt.Println("To authenticate, you need Google OAuth credentials:")
-	fmt.Println("  1. Go to https://console.cloud.google.com")
-	fmt.Println("  2. Create a project and enable the Gmail API")
-	fmt.Println("  3. Create an OAuth client ID (Desktop app)")
-	fmt.Println("  4. Download the JSON and save it as:")
-	fmt.Printf("     %s/credentials.json\n", filepath.Dir(configPath))
-	fmt.Println()
-	fmt.Println("Then run: letterhead sync")
-	fmt.Println()
+
+	if choice == "2" {
+		// OAuth flow
+		cfg.AuthMethod = config.AuthMethodOAuth
+		fmt.Println()
+		fmt.Printf("Config saved to %s\n", configPath)
+		fmt.Println()
+		fmt.Println("To authenticate, you need Google OAuth credentials:")
+		fmt.Println("  1. Go to https://console.cloud.google.com")
+		fmt.Println("  2. Create a project and enable the Gmail API")
+		fmt.Println("  3. Create an OAuth client ID (Desktop app)")
+		fmt.Println("  4. Download the JSON and save it as:")
+		fmt.Printf("     %s/credentials.json\n", filepath.Dir(configPath))
+		fmt.Println()
+		fmt.Println("Then run: letterhead sync")
+		fmt.Println()
+	} else {
+		// App password flow (default)
+		cfg.AuthMethod = config.AuthMethodAppPassword
+		fmt.Println()
+		fmt.Println("To create an app password:")
+		fmt.Println("  1. Go to https://myaccount.google.com/apppasswords")
+		fmt.Println("     (requires 2-step verification to be enabled)")
+		fmt.Println("  2. Enter 'letterhead' as the app name")
+		fmt.Println("  3. Copy the 16-character password")
+		fmt.Println()
+		fmt.Print("App password: ")
+		appPass, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return cfg, err
+		}
+		appPass = strings.TrimSpace(appPass)
+		appPass = strings.ReplaceAll(appPass, " ", "")
+
+		if appPass != "" && cfg.AccountEmail != "" {
+			appPassPath, err := config.AppPasswordPath(cfg.AccountEmail)
+			if err != nil {
+				return cfg, err
+			}
+
+			if err := os.MkdirAll(filepath.Dir(appPassPath), 0o700); err != nil {
+				return cfg, err
+			}
+
+			if err := os.WriteFile(appPassPath, []byte(appPass), 0o600); err != nil {
+				return cfg, err
+			}
+		}
+
+		fmt.Println()
+		fmt.Printf("Config saved to %s\n", configPath)
+		fmt.Println("Credentials saved.")
+		fmt.Println()
+		fmt.Println("Then run: letterhead sync")
+		fmt.Println()
+	}
 
 	return cfg, nil
 }

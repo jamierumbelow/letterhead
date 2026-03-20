@@ -16,6 +16,9 @@ type SyncState struct {
 	BootstrapComplete bool
 	MessagesSynced    int
 	LastSyncAt        *time.Time
+	UIDValidity       uint32
+	LastUID           uint32
+	AuthMethod        string
 }
 
 // SyncRun represents one sync operation for audit purposes.
@@ -251,14 +254,16 @@ func (s *Store) CountThreads(ctx context.Context) (int, error) {
 // Returns sql.ErrNoRows if no state exists yet.
 func (s *Store) GetSyncState(ctx context.Context, accountID string) (*SyncState, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT account_id, history_id, bootstrap_complete, messages_synced, last_sync_at
+		SELECT account_id, history_id, bootstrap_complete, messages_synced, last_sync_at,
+		       uid_validity, last_uid, auth_method
 		FROM sync_state WHERE account_id = ?`, accountID)
 
 	var st SyncState
 	var bootstrapInt int
 	var lastSyncUnix sql.NullInt64
 
-	err := row.Scan(&st.AccountID, &st.HistoryID, &bootstrapInt, &st.MessagesSynced, &lastSyncUnix)
+	err := row.Scan(&st.AccountID, &st.HistoryID, &bootstrapInt, &st.MessagesSynced, &lastSyncUnix,
+		&st.UIDValidity, &st.LastUID, &st.AuthMethod)
 	if err != nil {
 		return nil, err
 	}
@@ -285,15 +290,25 @@ func (s *Store) SetSyncState(ctx context.Context, st *SyncState) error {
 		bootstrapInt = 1
 	}
 
+	authMethod := st.AuthMethod
+	if authMethod == "" {
+		authMethod = "oauth"
+	}
+
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO sync_state (account_id, history_id, bootstrap_complete, messages_synced, last_sync_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO sync_state (account_id, history_id, bootstrap_complete, messages_synced, last_sync_at,
+		                        uid_validity, last_uid, auth_method)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(account_id) DO UPDATE SET
 			history_id = excluded.history_id,
 			bootstrap_complete = excluded.bootstrap_complete,
 			messages_synced = excluded.messages_synced,
-			last_sync_at = excluded.last_sync_at`,
+			last_sync_at = excluded.last_sync_at,
+			uid_validity = excluded.uid_validity,
+			last_uid = excluded.last_uid,
+			auth_method = excluded.auth_method`,
 		st.AccountID, st.HistoryID, bootstrapInt, st.MessagesSynced, lastSyncUnix,
+		st.UIDValidity, st.LastUID, authMethod,
 	)
 	return err
 }

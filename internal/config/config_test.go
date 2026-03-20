@@ -55,6 +55,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	cfg := Config{
 		ArchiveRoot:       filepath.Join(dataHome, "custom-archive"),
 		AccountEmail:      "user@example.com",
+		AuthMethod:        AuthMethodOAuth,
 		SyncMode:          SyncModeInbox,
 		RecentWindowWeeks: 4,
 		SchedulerCadence:  "30m",
@@ -118,9 +119,21 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		want error
 	}{
 		{
+			name: "invalid auth method",
+			cfg: Config{
+				ArchiveRoot:       archiveRoot,
+				AuthMethod:        "broken",
+				SyncMode:          SyncModeRecent,
+				RecentWindowWeeks: defaultRecentWindowWeeks,
+				SchedulerCadence:  defaultSchedulerCadence,
+			},
+			want: ErrInvalidAuthMethod,
+		},
+		{
 			name: "invalid sync mode",
 			cfg: Config{
 				ArchiveRoot:       archiveRoot,
+				AuthMethod:        AuthMethodOAuth,
 				SyncMode:          "broken",
 				RecentWindowWeeks: defaultRecentWindowWeeks,
 				SchedulerCadence:  defaultSchedulerCadence,
@@ -131,6 +144,7 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			name: "invalid recent window",
 			cfg: Config{
 				ArchiveRoot:       archiveRoot,
+				AuthMethod:        AuthMethodOAuth,
 				SyncMode:          SyncModeRecent,
 				RecentWindowWeeks: -1,
 				SchedulerCadence:  defaultSchedulerCadence,
@@ -141,6 +155,7 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			name: "invalid cadence",
 			cfg: Config{
 				ArchiveRoot:       archiveRoot,
+				AuthMethod:        AuthMethodOAuth,
 				SyncMode:          SyncModeRecent,
 				RecentWindowWeeks: defaultRecentWindowWeeks,
 				SchedulerCadence:  "not-a-duration",
