@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"testing"
 
+	"github.com/jamierumbelow/letterhead/internal/mimeutil"
 	gm "google.golang.org/api/gmail/v1"
 )
 
@@ -227,9 +228,9 @@ func TestStripHTML(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := stripHTML(tt.input)
+		got := mimeutil.StripHTML(tt.input)
 		if got != tt.want {
-			t.Errorf("stripHTML(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("mimeutil.StripHTML(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
@@ -247,9 +248,9 @@ func TestDecodeRFC2047(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := decodeRFC2047(tt.input)
+		got := mimeutil.DecodeRFC2047(tt.input)
 		if got != tt.want {
-			t.Errorf("decodeRFC2047(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("mimeutil.DecodeRFC2047(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
@@ -269,12 +270,12 @@ func TestParseAddress(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := parseAddress(tt.input)
+		got := mimeutil.ParseAddress(tt.input)
 		if got.Name != tt.wantName {
-			t.Errorf("parseAddress(%q).Name = %q, want %q", tt.input, got.Name, tt.wantName)
+			t.Errorf("mimeutil.ParseAddress(%q).Name = %q, want %q", tt.input, got.Name, tt.wantName)
 		}
 		if got.Email != tt.wantEmail {
-			t.Errorf("parseAddress(%q).Email = %q, want %q", tt.input, got.Email, tt.wantEmail)
+			t.Errorf("mimeutil.ParseAddress(%q).Email = %q, want %q", tt.input, got.Email, tt.wantEmail)
 		}
 	}
 }

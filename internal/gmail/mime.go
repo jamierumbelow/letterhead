@@ -2,11 +2,10 @@ package gmail
 
 import (
 	"encoding/base64"
-	"mime"
-	"net/mail"
 	"strings"
 	"time"
 
+	"github.com/jamierumbelow/letterhead/internal/mimeutil"
 	"github.com/jamierumbelow/letterhead/pkg/types"
 	gm "google.golang.org/api/gmail/v1"
 )
@@ -25,12 +24,12 @@ func NormalizeMessage(raw *gm.Message) *types.Message {
 
 	// Extract headers
 	headers := headerMap(raw.Payload)
-	msg.Subject = decodeRFC2047(headers["Subject"])
-	msg.From = parseAddress(headers["From"])
+	msg.Subject = mimeutil.DecodeRFC2047(headers["Subject"])
+	msg.From = mimeutil.ParseAddress(headers["From"])
 
-	msg.To = parseAddressList(headers["To"])
-	msg.CC = parseAddressList(headers["Cc"])
-	msg.BCC = parseAddressList(headers["Bcc"])
+	msg.To = mimeutil.ParseAddressList(headers["To"])
+	msg.CC = mimeutil.ParseAddressList(headers["Cc"])
+	msg.BCC = mimeutil.ParseAddressList(headers["Bcc"])
 
 	// Extract labels
 	msg.Labels = raw.LabelIds
@@ -40,7 +39,7 @@ func NormalizeMessage(raw *gm.Message) *types.Message {
 
 	// Derive plain text from HTML if no text/plain part exists
 	if msg.PlainBody == "" && msg.HTMLBody != "" {
-		msg.PlainBody = stripHTML(msg.HTMLBody)
+		msg.PlainBody = mimeutil.StripHTML(msg.HTMLBody)
 	}
 
 	return msg
@@ -114,87 +113,3 @@ func decodeBase64URL(s string) string {
 	return string(data)
 }
 
-func decodeRFC2047(s string) string {
-	dec := new(mime.WordDecoder)
-	decoded, err := dec.DecodeHeader(s)
-	if err != nil {
-		return s
-	}
-	return decoded
-}
-
-func parseAddress(s string) types.Address {
-	if s == "" {
-		return types.Address{}
-	}
-
-	s = decodeRFC2047(s)
-
-	addr, err := mail.ParseAddress(s)
-	if err != nil {
-		// Fall back to using raw string as email
-		return types.Address{Email: s}
-	}
-	return types.Address{Name: addr.Name, Email: addr.Address}
-}
-
-func parseAddressList(s string) []types.Address {
-	if s == "" {
-		return nil
-	}
-
-	s = decodeRFC2047(s)
-
-	addrs, err := mail.ParseAddressList(s)
-	if err != nil {
-		return nil
-	}
-
-	result := make([]types.Address, len(addrs))
-	for i, a := range addrs {
-		result[i] = types.Address{Name: a.Name, Email: a.Address}
-	}
-	return result
-}
-
-func stripHTML(html string) string {
-	var b strings.Builder
-	inTag := false
-	var tagName strings.Builder
-
-	for _, r := range html {
-		switch {
-		case r == '<':
-			inTag = true
-			tagName.Reset()
-		case r == '>' && inTag:
-			inTag = false
-			// Insert space after block-level closing tags and <br>
-			tag := strings.ToLower(tagName.String())
-			if isBlockTag(tag) || strings.HasPrefix(tag, "br") {
-				b.WriteRune(' ')
-			}
-		case inTag:
-			tagName.WriteRune(r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-
-	// Collapse whitespace
-	result := b.String()
-	result = strings.Join(strings.Fields(result), " ")
-	return strings.TrimSpace(result)
-}
-
-func isBlockTag(tag string) bool {
-	// Strip leading / for closing tags
-	tag = strings.TrimPrefix(tag, "/")
-	switch tag {
-	case "p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
-		"li", "tr", "td", "th", "blockquote", "pre", "hr",
-		"section", "article", "header", "footer", "nav":
-		return true
-	}
-	return false
-}
