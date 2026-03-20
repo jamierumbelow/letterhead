@@ -23,7 +23,7 @@ func NewRootCommand() *cobra.Command {
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return nil
+			return cmd.Help()
 		},
 	}
 
