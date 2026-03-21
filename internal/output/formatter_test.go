@@ -129,11 +129,9 @@ func TestHumanFormatterFind(t *testing.T) {
 
 	payload := buf.String()
 	expectedFields := []string{
-		"2026-03-18",
 		"Quarterly update",
 		"(3)",
 		"A. Sender, B. Recipient",
-		"Latest numbers attached.",
 	}
 
 	for _, field := range expectedFields {

@@ -10,7 +10,7 @@ import (
 	"github.com/jamierumbelow/letterhead/pkg/types"
 )
 
-func openTestDB(t *testing.T) *sql.DB {
+func openTestDB(t testing.TB) *sql.DB {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "letterhead.db")
 	db, err := Open(dbPath)

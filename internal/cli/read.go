@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jamierumbelow/letterhead/internal/diagnostics"
 	"github.com/jamierumbelow/letterhead/internal/output"
 	"github.com/jamierumbelow/letterhead/internal/store"
 	"github.com/jamierumbelow/letterhead/pkg/types"
@@ -45,6 +46,14 @@ func newReadCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// Audit log
+			audit := diagnostics.NewAuditLog(cfg.ArchiveRoot)
+			audit.Log(diagnostics.AuditEntry{
+				Command:     "read",
+				ID:          handle,
+				ResultCount: 1,
+			})
 
 			if asThread {
 				return readThread(ctx, cmd, s, formatter, handle, readView)

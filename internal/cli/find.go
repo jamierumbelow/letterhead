@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jamierumbelow/letterhead/internal/diagnostics"
 	"github.com/jamierumbelow/letterhead/internal/query"
 	"github.com/jamierumbelow/letterhead/internal/store"
 	"github.com/jamierumbelow/letterhead/pkg/types"
@@ -94,6 +96,8 @@ func newFindCommand() *cobra.Command {
 			output := types.FindOutput{
 				Results:    results,
 				TotalCount: len(results),
+				Limit:      flags.limit,
+				Offset:     flags.offset,
 				QueryMS:    elapsed.Milliseconds(),
 			}
 
@@ -101,6 +105,14 @@ func newFindCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// Audit log
+			audit := diagnostics.NewAuditLog(cfg.ArchiveRoot)
+			audit.Log(diagnostics.AuditEntry{
+				Command:     "find",
+				Query:       strings.Join(args, " "),
+				ResultCount: len(results),
+			})
 
 			return formatter.WriteFind(cmd.OutOrStdout(), output)
 		},

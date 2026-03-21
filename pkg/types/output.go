@@ -41,6 +41,8 @@ type FindResult struct {
 type FindOutput struct {
 	Results    []FindResult `json:"results"`
 	TotalCount int          `json:"total_count"`
+	Limit      int          `json:"limit,omitempty"`
+	Offset     int          `json:"offset,omitempty"`
 	QueryMS    int64        `json:"query_ms"`
 }
 

@@ -18,14 +18,16 @@ const (
 // BootstrapConfig controls the bootstrap sync process.
 type BootstrapConfig struct {
 	AccountEmail string
+	Query        string // Gmail query to list messages (e.g. "label:INBOX", "in:anywhere")
 	BatchSize    int
 	Workers      int
 }
 
-// DefaultBootstrapConfig returns sensible defaults.
+// DefaultBootstrapConfig returns sensible defaults for inbox mode.
 func DefaultBootstrapConfig(email string) BootstrapConfig {
 	return BootstrapConfig{
 		AccountEmail: email,
+		Query:        "label:INBOX",
 		BatchSize:    batchSize,
 		Workers:      workerCount,
 	}
@@ -34,11 +36,16 @@ func DefaultBootstrapConfig(email string) BootstrapConfig {
 // ProgressFunc is called after each batch with the total synced count.
 type ProgressFunc func(synced int)
 
-// Bootstrap performs the initial inbox sync. It is resumable: on restart it
-// skips messages already in the local store.
+// Bootstrap performs the initial sync for the configured mode. It is resumable:
+// on restart it skips messages already in the local store.
 func Bootstrap(ctx context.Context, client mailclient.MailClient, s *store.Store, cfg BootstrapConfig, progress ProgressFunc) error {
 	if progress == nil {
 		progress = func(int) {}
+	}
+
+	folder := cfg.Query
+	if folder == "" {
+		folder = "INBOX"
 	}
 
 	// Step 1: Capture current historyId from profile
@@ -47,11 +54,11 @@ func Bootstrap(ctx context.Context, client mailclient.MailClient, s *store.Store
 		return fmt.Errorf("get profile: %w", err)
 	}
 
-	// Step 2: List all inbox message IDs
+	// Step 2: List message IDs for the configured query
 	var allIDs []string
 	pageToken := ""
 	for {
-		ids, nextPage, err := client.ListMessageIDs(ctx, "INBOX", pageToken)
+		ids, nextPage, err := client.ListMessageIDs(ctx, folder, pageToken)
 		if err != nil {
 			return fmt.Errorf("list messages: %w", err)
 		}
@@ -192,4 +199,19 @@ func fetchAndStoreBatch(ctx context.Context, client mailclient.MailClient, s *st
 	}
 
 	return nil
+}
+
+// QueryForMode returns the Gmail query string for the given sync mode.
+func QueryForMode(mode string, recentWeeks int) string {
+	switch mode {
+	case "inbox":
+		return "label:INBOX"
+	case "recent":
+		cutoff := time.Now().AddDate(0, 0, -recentWeeks*7)
+		return fmt.Sprintf("after:%s", cutoff.Format("2006/01/02"))
+	case "full":
+		return ""
+	default:
+		return "label:INBOX"
+	}
 }
