@@ -27,6 +27,7 @@ var plistTmpl = template.Must(template.New("plist").Parse(`<?xml version="1.0" e
     <array>
         <string>{{ .Bin }}</string>
         <string>sync</string>
+        <string>--all</string>
     </array>
     <key>StartInterval</key>
     <integer>{{ .Interval }}</integer>

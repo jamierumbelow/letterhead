@@ -93,8 +93,34 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if loaded != cfg {
-		t.Fatalf("Load() = %#v, want %#v", loaded, cfg)
+	// Compare core fields (Accounts slice is populated by MigrateAccounts)
+	if loaded.ArchiveRoot != cfg.ArchiveRoot {
+		t.Fatalf("ArchiveRoot = %q, want %q", loaded.ArchiveRoot, cfg.ArchiveRoot)
+	}
+	if loaded.AccountEmail != cfg.AccountEmail {
+		t.Fatalf("AccountEmail = %q, want %q", loaded.AccountEmail, cfg.AccountEmail)
+	}
+	if loaded.AuthMethod != cfg.AuthMethod {
+		t.Fatalf("AuthMethod = %q, want %q", loaded.AuthMethod, cfg.AuthMethod)
+	}
+	if loaded.SyncMode != cfg.SyncMode {
+		t.Fatalf("SyncMode = %q, want %q", loaded.SyncMode, cfg.SyncMode)
+	}
+	if loaded.RecentWindowWeeks != cfg.RecentWindowWeeks {
+		t.Fatalf("RecentWindowWeeks = %d, want %d", loaded.RecentWindowWeeks, cfg.RecentWindowWeeks)
+	}
+	if loaded.SchedulerCadence != cfg.SchedulerCadence {
+		t.Fatalf("SchedulerCadence = %q, want %q", loaded.SchedulerCadence, cfg.SchedulerCadence)
+	}
+	// Legacy account should have been migrated into Accounts slice
+	if len(loaded.Accounts) != 1 {
+		t.Fatalf("len(Accounts) = %d, want 1", len(loaded.Accounts))
+	}
+	if loaded.Accounts[0].Email != cfg.AccountEmail {
+		t.Fatalf("Accounts[0].Email = %q, want %q", loaded.Accounts[0].Email, cfg.AccountEmail)
+	}
+	if loaded.DefaultAccount != cfg.AccountEmail {
+		t.Fatalf("DefaultAccount = %q, want %q", loaded.DefaultAccount, cfg.AccountEmail)
 	}
 }
 

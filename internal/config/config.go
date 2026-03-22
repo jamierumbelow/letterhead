@@ -45,6 +45,12 @@ var (
 	ErrInvalidAuthMethod    = errors.New("auth method must be oauth or apppassword")
 )
 
+// Account holds per-account settings for a single Gmail account.
+type Account struct {
+	Email      string     `toml:"email"`
+	AuthMethod AuthMethod `toml:"auth_method"`
+}
+
 type Config struct {
 	ArchiveRoot       string     `toml:"archive_root"`
 	AccountEmail      string     `toml:"account_email"`
@@ -52,6 +58,8 @@ type Config struct {
 	SyncMode          SyncMode   `toml:"sync_mode"`
 	RecentWindowWeeks int        `toml:"recent_window_weeks"`
 	SchedulerCadence  string     `toml:"scheduler_cadence"`
+	Accounts          []Account  `toml:"accounts,omitempty"`
+	DefaultAccount    string     `toml:"default_account,omitempty"`
 }
 
 func Default() (Config, error) {
@@ -208,6 +216,29 @@ func TokenPath(accountEmail string) (string, error) {
 	return filepath.Join(configHome, configDirName, fileName), nil
 }
 
+// MigrateAccounts promotes legacy single-account fields (AccountEmail,
+// AuthMethod) into the Accounts slice if it is empty, ensuring backward
+// compatibility with old config files.
+func (c *Config) MigrateAccounts() {
+	if len(c.Accounts) == 0 && c.AccountEmail != "" {
+		c.Accounts = []Account{{
+			Email:      c.AccountEmail,
+			AuthMethod: c.AuthMethod,
+		}}
+		c.DefaultAccount = c.AccountEmail
+	}
+}
+
+// AccountByEmail returns the Account with the given email, or nil if not found.
+func (c *Config) AccountByEmail(email string) *Account {
+	for i := range c.Accounts {
+		if strings.EqualFold(c.Accounts[i].Email, email) {
+			return &c.Accounts[i]
+		}
+	}
+	return nil
+}
+
 func (c *Config) applyDefaults() {
 	if c.AuthMethod == "" {
 		c.AuthMethod = AuthMethodOAuth
@@ -230,6 +261,8 @@ func (c *Config) applyDefaults() {
 			c.ArchiveRoot = archiveRoot
 		}
 	}
+
+	c.MigrateAccounts()
 }
 
 func (m AuthMethod) valid() bool {
