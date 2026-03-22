@@ -36,6 +36,10 @@ func newFindCommand() *cobra.Command {
 				return err
 			}
 
+			// Get the --account flag value for scoping search.
+			// If empty, AccountID is left blank (cross-account search).
+			accountFlag, _ := cmd.Flags().GetString("account")
+
 			var hasAttach *bool
 			if cmd.Flags().Changed("has-attachment") {
 				hasAttach = &flags.hasAttachment
@@ -49,6 +53,7 @@ func newFindCommand() *cobra.Command {
 				After:         flags.after,
 				Before:        flags.before,
 				HasAttachment: hasAttach,
+				AccountID:     accountFlag,
 				Limit:         flags.limit,
 				Offset:        flags.offset,
 			}

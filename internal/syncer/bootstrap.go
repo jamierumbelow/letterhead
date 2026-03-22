@@ -74,7 +74,7 @@ func Bootstrap(ctx context.Context, client mailclient.MailClient, s *store.Store
 	// Step 3: Filter out IDs already in local store
 	var missingIDs []string
 	for _, id := range allIDs {
-		exists, err := s.MessageExists(ctx, "", id)
+		exists, err := s.MessageExists(ctx, cfg.AccountEmail, id)
 		if err != nil {
 			return fmt.Errorf("check message exists: %w", err)
 		}
@@ -102,7 +102,7 @@ func Bootstrap(ctx context.Context, client mailclient.MailClient, s *store.Store
 		}
 		batch := missingIDs[i:end]
 
-		if err := fetchAndStoreBatch(ctx, client, s, batch, cfg.Workers); err != nil {
+		if err := fetchAndStoreBatch(ctx, client, s, batch, cfg.Workers, cfg.AccountEmail); err != nil {
 			return fmt.Errorf("batch sync: %w", err)
 		}
 
@@ -149,7 +149,7 @@ func Bootstrap(ctx context.Context, client mailclient.MailClient, s *store.Store
 	return nil
 }
 
-func fetchAndStoreBatch(ctx context.Context, client mailclient.MailClient, s *store.Store, ids []string, workers int) error {
+func fetchAndStoreBatch(ctx context.Context, client mailclient.MailClient, s *store.Store, ids []string, workers int, accountEmail string) error {
 	if workers <= 0 {
 		workers = workerCount
 	}
@@ -173,6 +173,7 @@ func fetchAndStoreBatch(ctx context.Context, client mailclient.MailClient, s *st
 					resultCh <- result{id: id, err: err}
 					continue
 				}
+				msg.AccountID = accountEmail
 				if err := s.UpsertMessage(ctx, msg); err != nil {
 					resultCh <- result{id: id, err: err}
 					continue

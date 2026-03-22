@@ -57,6 +57,7 @@ func Incremental(ctx context.Context, client *gmail.Client, s *store.Store, acco
 				}
 
 				normalized := gmail.NormalizeMessage(raw.Raw)
+				normalized.AccountID = accountEmail
 				if err := s.UpsertMessage(ctx, normalized); err != nil {
 					return nil, fmt.Errorf("upsert message %s: %w", added.MessageID, err)
 				}
@@ -65,7 +66,7 @@ func Incremental(ctx context.Context, client *gmail.Client, s *store.Store, acco
 
 			// Handle deleted messages
 			for _, deleted := range rec.MessagesDeleted {
-				if err := s.DeleteMessage(ctx, "", deleted.MessageID); err != nil {
+				if err := s.DeleteMessage(ctx, accountEmail, deleted.MessageID); err != nil {
 					return nil, fmt.Errorf("delete message %s: %w", deleted.MessageID, err)
 				}
 				result.Deleted++
@@ -73,13 +74,13 @@ func Incremental(ctx context.Context, client *gmail.Client, s *store.Store, acco
 
 			// Handle label changes: re-fetch the message to get current labels
 			for _, lc := range rec.LabelsAdded {
-				if err := refetchLabels(ctx, client, s, lc.MessageID); err != nil {
+				if err := refetchLabels(ctx, client, s, accountEmail, lc.MessageID); err != nil {
 					return nil, err
 				}
 				result.Labels++
 			}
 			for _, lc := range rec.LabelsRemoved {
-				if err := refetchLabels(ctx, client, s, lc.MessageID); err != nil {
+				if err := refetchLabels(ctx, client, s, accountEmail, lc.MessageID); err != nil {
 					return nil, err
 				}
 				result.Labels++
@@ -109,8 +110,8 @@ func Incremental(ctx context.Context, client *gmail.Client, s *store.Store, acco
 }
 
 // refetchLabels re-fetches a message's metadata and updates its labels in the store.
-func refetchLabels(ctx context.Context, client *gmail.Client, s *store.Store, messageID string) error {
-	exists, err := s.MessageExists(ctx, "", messageID)
+func refetchLabels(ctx context.Context, client *gmail.Client, s *store.Store, accountEmail string, messageID string) error {
+	exists, err := s.MessageExists(ctx, accountEmail, messageID)
 	if err != nil {
 		return fmt.Errorf("check message %s: %w", messageID, err)
 	}
@@ -130,6 +131,7 @@ func refetchLabels(ctx context.Context, client *gmail.Client, s *store.Store, me
 	}
 
 	normalized := gmail.NormalizeMessage(raw.Raw)
+	normalized.AccountID = accountEmail
 	if err := s.UpsertMessage(ctx, normalized); err != nil {
 		return fmt.Errorf("upsert message %s: %w", messageID, err)
 	}
