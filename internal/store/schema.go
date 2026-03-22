@@ -34,6 +34,7 @@ var migrations = []Migration{
 	{Version: 1, Path: "migrations/001_initial.sql"},
 	{Version: 2, Path: "migrations/002_fts5.sql"},
 	{Version: 3, Path: "migrations/003_imap_sync_state.sql"},
+	{Version: 4, Path: "migrations/004_multi_account.sql"},
 }
 
 func Open(path string) (*sql.DB, error) {
