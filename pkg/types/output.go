@@ -27,6 +27,7 @@ type StatusOutput struct {
 // FindResult is the stable machine-readable contract for one `letterhead find` result.
 type FindResult struct {
 	ResultID      string    `json:"result_id"`
+	AccountID     string    `json:"account_id"`
 	ThreadID      string    `json:"thread_id"`
 	Subject       string    `json:"subject"`
 	Participants  []string  `json:"participants"`
@@ -48,6 +49,7 @@ type FindOutput struct {
 
 // MessageSummary is the thread-safe summary shape reused by `letterhead read`.
 type MessageSummary struct {
+	AccountID       string    `json:"account_id"`
 	MessageID       string    `json:"message_id"`
 	ThreadID        string    `json:"thread_id"`
 	Subject         string    `json:"subject"`
@@ -62,6 +64,7 @@ type MessageSummary struct {
 // ReadOutput is the stable machine-readable contract for `letterhead read`.
 type ReadOutput struct {
 	View         ReadView         `json:"view"`
+	AccountID    string           `json:"account_id"`
 	MessageID    string           `json:"message_id"`
 	ThreadID     string           `json:"thread_id"`
 	Subject      string           `json:"subject"`

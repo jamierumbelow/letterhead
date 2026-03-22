@@ -18,6 +18,7 @@ type AttachmentMeta struct {
 
 // Message is the canonical normalized representation of a Gmail message.
 type Message struct {
+	AccountID    string           `json:"account_id"`
 	GmailID      string           `json:"gmail_id"`
 	ThreadID     string           `json:"thread_id"`
 	HistoryID    uint64           `json:"history_id"`
@@ -37,6 +38,7 @@ type Message struct {
 
 // ThreadSummary is the summary-first result shape returned by search.
 type ThreadSummary struct {
+	AccountID    string    `json:"account_id"`
 	ThreadID     string    `json:"thread_id"`
 	Subject      string    `json:"subject"`
 	Participants []string  `json:"participants,omitempty"`
