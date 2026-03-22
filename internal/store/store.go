@@ -36,12 +36,18 @@ type SyncRun struct {
 // Store wraps a SQLite database and exposes typed operations for
 // messages, sync state, and sync runs.
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	accountID string
 }
 
 // New wraps an already-opened *sql.DB. The caller owns the DB lifecycle.
 func New(db *sql.DB) *Store {
 	return &Store{db: db}
+}
+
+// NewWithAccount wraps an already-opened *sql.DB scoped to a specific account.
+func NewWithAccount(db *sql.DB, accountID string) *Store {
+	return &Store{db: db, accountID: accountID}
 }
 
 // DB returns the underlying database handle.
@@ -68,12 +74,12 @@ func (s *Store) UpsertMessage(ctx context.Context, msg *types.Message) error {
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO messages (
-			gmail_id, thread_id, history_id, internal_date, received_at,
+			account_id, gmail_id, thread_id, history_id, internal_date, received_at,
 			subject, snippet, from_addr, from_name,
 			plain_body, html_body, attachment_metadata_json,
 			raw_size_bytes, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(gmail_id) DO UPDATE SET
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(account_id, gmail_id) DO UPDATE SET
 			thread_id = excluded.thread_id,
 			history_id = excluded.history_id,
 			internal_date = excluded.internal_date,
@@ -87,7 +93,7 @@ func (s *Store) UpsertMessage(ctx context.Context, msg *types.Message) error {
 			attachment_metadata_json = excluded.attachment_metadata_json,
 			raw_size_bytes = excluded.raw_size_bytes,
 			updated_at = excluded.updated_at`,
-		msg.GmailID, msg.ThreadID, msg.HistoryID, msg.InternalDate, msg.ReceivedAt.Unix(),
+		s.accountID, msg.GmailID, msg.ThreadID, msg.HistoryID, msg.InternalDate, msg.ReceivedAt.Unix(),
 		msg.Subject, msg.Snippet, msg.From.Email, msg.From.Name,
 		msg.PlainBody, msg.HTMLBody, string(attachJSON),
 		0, now, now,
@@ -97,31 +103,31 @@ func (s *Store) UpsertMessage(ctx context.Context, msg *types.Message) error {
 	}
 
 	// Replace labels
-	if _, err := tx.ExecContext(ctx, `DELETE FROM message_labels WHERE gmail_id = ?`, msg.GmailID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_labels WHERE account_id = ? AND gmail_id = ?`, s.accountID, msg.GmailID); err != nil {
 		return err
 	}
 	for _, label := range msg.Labels {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO message_labels (gmail_id, label) VALUES (?, ?)`, msg.GmailID, label); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO message_labels (account_id, gmail_id, label) VALUES (?, ?, ?)`, s.accountID, msg.GmailID, label); err != nil {
 			return err
 		}
 	}
 
 	// Replace recipients
-	if _, err := tx.ExecContext(ctx, `DELETE FROM message_recipients WHERE gmail_id = ?`, msg.GmailID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM message_recipients WHERE account_id = ? AND gmail_id = ?`, s.accountID, msg.GmailID); err != nil {
 		return err
 	}
 	for _, addr := range msg.To {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO message_recipients (gmail_id, role, addr, name) VALUES (?, 'to', ?, ?)`, msg.GmailID, addr.Email, addr.Name); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO message_recipients (account_id, gmail_id, role, addr, name) VALUES (?, ?, 'to', ?, ?)`, s.accountID, msg.GmailID, addr.Email, addr.Name); err != nil {
 			return err
 		}
 	}
 	for _, addr := range msg.CC {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO message_recipients (gmail_id, role, addr, name) VALUES (?, 'cc', ?, ?)`, msg.GmailID, addr.Email, addr.Name); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO message_recipients (account_id, gmail_id, role, addr, name) VALUES (?, ?, 'cc', ?, ?)`, s.accountID, msg.GmailID, addr.Email, addr.Name); err != nil {
 			return err
 		}
 	}
 	for _, addr := range msg.BCC {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO message_recipients (gmail_id, role, addr, name) VALUES (?, 'bcc', ?, ?)`, msg.GmailID, addr.Email, addr.Name); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO message_recipients (account_id, gmail_id, role, addr, name) VALUES (?, ?, 'bcc', ?, ?)`, s.accountID, msg.GmailID, addr.Email, addr.Name); err != nil {
 			return err
 		}
 	}
