@@ -93,7 +93,12 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if loaded != cfg {
+	if loaded.ArchiveRoot != cfg.ArchiveRoot ||
+		loaded.AccountEmail != cfg.AccountEmail ||
+		loaded.AuthMethod != cfg.AuthMethod ||
+		loaded.SyncMode != cfg.SyncMode ||
+		loaded.RecentWindowWeeks != cfg.RecentWindowWeeks ||
+		loaded.SchedulerCadence != cfg.SchedulerCadence {
 		t.Fatalf("Load() = %#v, want %#v", loaded, cfg)
 	}
 }

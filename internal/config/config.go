@@ -43,15 +43,36 @@ var (
 	ErrInvalidRecentWindow  = errors.New("recent window weeks must be greater than zero")
 	ErrInvalidCadence       = errors.New("scheduler cadence must be a valid duration")
 	ErrInvalidAuthMethod    = errors.New("auth method must be oauth or apppassword")
+	ErrAccountNotFound      = errors.New("account not found")
+	ErrDuplicateAccount     = errors.New("duplicate account email")
 )
 
+// AccountConfig holds per-account settings.
+type AccountConfig struct {
+	Email      string     `toml:"email"`
+	AuthMethod AuthMethod `toml:"auth_method"`
+}
+
 type Config struct {
-	ArchiveRoot       string     `toml:"archive_root"`
-	AccountEmail      string     `toml:"account_email"`
-	AuthMethod        AuthMethod `toml:"auth_method"`
-	SyncMode          SyncMode   `toml:"sync_mode"`
-	RecentWindowWeeks int        `toml:"recent_window_weeks"`
-	SchedulerCadence  string     `toml:"scheduler_cadence"`
+	ArchiveRoot       string          `toml:"archive_root"`
+	AccountEmail      string          `toml:"account_email,omitempty"`
+	AuthMethod        AuthMethod      `toml:"auth_method"`
+	DefaultAccount    string          `toml:"default_account,omitempty"`
+	Accounts          []AccountConfig `toml:"accounts,omitempty"`
+	SyncMode          SyncMode        `toml:"sync_mode"`
+	RecentWindowWeeks int             `toml:"recent_window_weeks"`
+	SchedulerCadence  string          `toml:"scheduler_cadence"`
+}
+
+// AccountByEmail returns a pointer to the matching AccountConfig, or nil.
+func (c Config) AccountByEmail(email string) *AccountConfig {
+	email = strings.ToLower(strings.TrimSpace(email))
+	for i := range c.Accounts {
+		if strings.ToLower(strings.TrimSpace(c.Accounts[i].Email)) == email {
+			return &c.Accounts[i]
+		}
+	}
+	return nil
 }
 
 func Default() (Config, error) {
@@ -229,6 +250,23 @@ func (c *Config) applyDefaults() {
 		if archiveRoot, err := DefaultArchiveRoot(); err == nil {
 			c.ArchiveRoot = archiveRoot
 		}
+	}
+
+	// Migrate legacy single-account fields into the Accounts slice.
+	if c.AccountEmail != "" && len(c.Accounts) == 0 {
+		c.Accounts = append(c.Accounts, AccountConfig{
+			Email:      c.AccountEmail,
+			AuthMethod: c.AuthMethod,
+		})
+		if c.DefaultAccount == "" {
+			c.DefaultAccount = c.AccountEmail
+		}
+	}
+
+	// Back-populate legacy fields from accounts for backward compat.
+	if c.AccountEmail == "" && len(c.Accounts) > 0 {
+		c.AccountEmail = c.Accounts[0].Email
+		c.AuthMethod = c.Accounts[0].AuthMethod
 	}
 }
 
