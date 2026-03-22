@@ -275,6 +275,20 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			want: ErrDuplicateAccount,
 		},
 		{
+			name: "duplicate account emails case-insensitive",
+			cfg: Config{
+				ArchiveRoot: archiveRoot,
+				Accounts: []AccountConfig{
+					{Email: "Alice@Example.com", AuthMethod: AuthMethodOAuth},
+					{Email: "alice@example.com", AuthMethod: AuthMethodOAuth},
+				},
+				SyncMode:          SyncModeRecent,
+				RecentWindowWeeks: defaultRecentWindowWeeks,
+				SchedulerCadence:  defaultSchedulerCadence,
+			},
+			want: ErrDuplicateAccount,
+		},
+		{
 			name: "empty account email",
 			cfg: Config{
 				ArchiveRoot: archiveRoot,
@@ -391,6 +405,64 @@ func TestAccountByEmail(t *testing.T) {
 	// Not found.
 	if cfg.AccountByEmail("nobody@example.com") != nil {
 		t.Fatal("expected nil for missing account")
+	}
+}
+
+func TestResolveAccountAmbiguousListsEmails(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Accounts: []AccountConfig{
+			{Email: "alice@example.com", AuthMethod: AuthMethodOAuth},
+			{Email: "bob@example.com", AuthMethod: AuthMethodOAuth},
+		},
+	}
+
+	_, err := cfg.ResolveAccount("")
+	if !errors.Is(err, ErrAmbiguousAccount) {
+		t.Fatalf("error = %v, want ErrAmbiguousAccount", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "alice@example.com") || !strings.Contains(msg, "bob@example.com") {
+		t.Errorf("error message %q should list both account emails", msg)
+	}
+}
+
+func TestResolveAccountNotFoundListsAvailable(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Accounts: []AccountConfig{
+			{Email: "alice@example.com", AuthMethod: AuthMethodOAuth},
+		},
+	}
+
+	_, err := cfg.ResolveAccount("nobody@example.com")
+	if !errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("error = %v, want ErrAccountNotFound", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "alice@example.com") {
+		t.Errorf("error message %q should list available accounts", msg)
+	}
+}
+
+func TestAccountByEmailWithWhitespace(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Accounts: []AccountConfig{
+			{Email: "alice@example.com", AuthMethod: AuthMethodOAuth},
+		},
+	}
+
+	// Leading/trailing whitespace should be trimmed.
+	acct := cfg.AccountByEmail("  Alice@Example.com  ")
+	if acct == nil {
+		t.Fatal("expected non-nil for whitespace-padded email")
+	}
+	if acct.Email != "alice@example.com" {
+		t.Fatalf("got %q", acct.Email)
 	}
 }
 

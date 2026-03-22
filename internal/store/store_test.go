@@ -463,6 +463,273 @@ func TestUpsertMessageNilAttachments(t *testing.T) {
 	}
 }
 
+// --- Multi-account scoping tests ---
+
+func TestTwoAccountsSameGmailIDNoCollision(t *testing.T) {
+	t.Parallel()
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	storeA := NewWithAccount(db, "alice@example.com")
+	storeB := NewWithAccount(db, "bob@example.com")
+
+	msg := testMessage()
+
+	// Both accounts insert a message with the same gmail_id.
+	if err := storeA.UpsertMessage(ctx, msg); err != nil {
+		t.Fatalf("account A UpsertMessage() error = %v", err)
+	}
+	if err := storeB.UpsertMessage(ctx, msg); err != nil {
+		t.Fatalf("account B UpsertMessage() error = %v", err)
+	}
+
+	// Verify both rows exist via raw query.
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE gmail_id = ?`, msg.GmailID).Scan(&count); err != nil {
+		t.Fatalf("count query error = %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 rows for same gmail_id across accounts, got %d", count)
+	}
+}
+
+func TestGetMessageScopedByAccountID(t *testing.T) {
+	t.Parallel()
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	storeA := NewWithAccount(db, "alice@example.com")
+	storeB := NewWithAccount(db, "bob@example.com")
+
+	msgA := testMessage()
+	msgA.Subject = "Alice's message"
+	msgB := testMessage()
+	msgB.Subject = "Bob's message"
+
+	if err := storeA.UpsertMessage(ctx, msgA); err != nil {
+		t.Fatalf("UpsertMessage A error = %v", err)
+	}
+	if err := storeB.UpsertMessage(ctx, msgB); err != nil {
+		t.Fatalf("UpsertMessage B error = %v", err)
+	}
+
+	s := New(db)
+
+	// Scoped to alice should return alice's subject.
+	got, err := s.GetMessage(ctx, "alice@example.com", "msg_001")
+	if err != nil {
+		t.Fatalf("GetMessage(alice) error = %v", err)
+	}
+	if got.Subject != "Alice's message" {
+		t.Errorf("GetMessage(alice) Subject = %q, want %q", got.Subject, "Alice's message")
+	}
+
+	// Scoped to bob should return bob's subject.
+	got, err = s.GetMessage(ctx, "bob@example.com", "msg_001")
+	if err != nil {
+		t.Fatalf("GetMessage(bob) error = %v", err)
+	}
+	if got.Subject != "Bob's message" {
+		t.Errorf("GetMessage(bob) Subject = %q, want %q", got.Subject, "Bob's message")
+	}
+
+	// Scoped to nonexistent account returns ErrNoRows.
+	_, err = s.GetMessage(ctx, "nobody@example.com", "msg_001")
+	if err != sql.ErrNoRows {
+		t.Fatalf("GetMessage(nobody) error = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestGetMessageEmptyAccountIDReturnsFirstMatch(t *testing.T) {
+	t.Parallel()
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	storeA := NewWithAccount(db, "alice@example.com")
+	msg := testMessage()
+	if err := storeA.UpsertMessage(ctx, msg); err != nil {
+		t.Fatalf("UpsertMessage error = %v", err)
+	}
+
+	s := New(db)
+	got, err := s.GetMessage(ctx, "", "msg_001")
+	if err != nil {
+		t.Fatalf("GetMessage('') error = %v", err)
+	}
+	if got.GmailID != "msg_001" {
+		t.Errorf("GmailID = %q, want %q", got.GmailID, "msg_001")
+	}
+}
+
+func TestMessageExistsScopedByAccountID(t *testing.T) {
+	t.Parallel()
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	storeA := NewWithAccount(db, "alice@example.com")
+	msg := testMessage()
+	if err := storeA.UpsertMessage(ctx, msg); err != nil {
+		t.Fatalf("UpsertMessage error = %v", err)
+	}
+
+	s := New(db)
+
+	// Exists for alice.
+	exists, err := s.MessageExists(ctx, "alice@example.com", "msg_001")
+	if err != nil {
+		t.Fatalf("MessageExists(alice) error = %v", err)
+	}
+	if !exists {
+		t.Fatal("MessageExists(alice) = false, want true")
+	}
+
+	// Does not exist for bob.
+	exists, err = s.MessageExists(ctx, "bob@example.com", "msg_001")
+	if err != nil {
+		t.Fatalf("MessageExists(bob) error = %v", err)
+	}
+	if exists {
+		t.Fatal("MessageExists(bob) = true, want false")
+	}
+
+	// Empty accountID finds it.
+	exists, err = s.MessageExists(ctx, "", "msg_001")
+	if err != nil {
+		t.Fatalf("MessageExists('') error = %v", err)
+	}
+	if !exists {
+		t.Fatal("MessageExists('') = false, want true")
+	}
+}
+
+func TestCountMessagesScopedByAccountID(t *testing.T) {
+	t.Parallel()
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	storeA := NewWithAccount(db, "alice@example.com")
+	storeB := NewWithAccount(db, "bob@example.com")
+
+	msgA1 := testMessage()
+	msgA1.GmailID = "a1"
+	msgA2 := testMessage()
+	msgA2.GmailID = "a2"
+	msgB1 := testMessage()
+	msgB1.GmailID = "b1"
+
+	for _, m := range []*types.Message{msgA1, msgA2} {
+		if err := storeA.UpsertMessage(ctx, m); err != nil {
+			t.Fatalf("UpsertMessage(A, %s) error = %v", m.GmailID, err)
+		}
+	}
+	if err := storeB.UpsertMessage(ctx, msgB1); err != nil {
+		t.Fatalf("UpsertMessage(B) error = %v", err)
+	}
+
+	s := New(db)
+
+	// Scoped to alice.
+	count, err := s.CountMessages(ctx, "alice@example.com")
+	if err != nil {
+		t.Fatalf("CountMessages(alice) error = %v", err)
+	}
+	if count != 2 {
+		t.Errorf("CountMessages(alice) = %d, want 2", count)
+	}
+
+	// Scoped to bob.
+	count, err = s.CountMessages(ctx, "bob@example.com")
+	if err != nil {
+		t.Fatalf("CountMessages(bob) error = %v", err)
+	}
+	if count != 1 {
+		t.Errorf("CountMessages(bob) = %d, want 1", count)
+	}
+
+	// Empty accountID returns all.
+	count, err = s.CountMessages(ctx, "")
+	if err != nil {
+		t.Fatalf("CountMessages('') error = %v", err)
+	}
+	if count != 3 {
+		t.Errorf("CountMessages('') = %d, want 3", count)
+	}
+}
+
+func TestDeleteMessageScopedByAccountID(t *testing.T) {
+	t.Parallel()
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	storeA := NewWithAccount(db, "alice@example.com")
+	storeB := NewWithAccount(db, "bob@example.com")
+
+	msg := testMessage()
+
+	if err := storeA.UpsertMessage(ctx, msg); err != nil {
+		t.Fatalf("UpsertMessage(A) error = %v", err)
+	}
+	if err := storeB.UpsertMessage(ctx, msg); err != nil {
+		t.Fatalf("UpsertMessage(B) error = %v", err)
+	}
+
+	s := New(db)
+
+	// Delete alice's copy only.
+	if err := s.DeleteMessage(ctx, "alice@example.com", "msg_001"); err != nil {
+		t.Fatalf("DeleteMessage(alice) error = %v", err)
+	}
+
+	// Alice's is gone.
+	exists, err := s.MessageExists(ctx, "alice@example.com", "msg_001")
+	if err != nil {
+		t.Fatalf("MessageExists(alice) error = %v", err)
+	}
+	if exists {
+		t.Fatal("alice's message still exists after delete")
+	}
+
+	// Bob's is still there.
+	exists, err = s.MessageExists(ctx, "bob@example.com", "msg_001")
+	if err != nil {
+		t.Fatalf("MessageExists(bob) error = %v", err)
+	}
+	if !exists {
+		t.Fatal("bob's message was deleted, should still exist")
+	}
+}
+
+func TestCompositePKAllowsSameGmailIDDifferentAccounts(t *testing.T) {
+	t.Parallel()
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	storeA := NewWithAccount(db, "alice@example.com")
+	storeB := NewWithAccount(db, "bob@example.com")
+
+	msg := testMessage()
+
+	if err := storeA.UpsertMessage(ctx, msg); err != nil {
+		t.Fatalf("UpsertMessage(A) error = %v", err)
+	}
+	if err := storeB.UpsertMessage(ctx, msg); err != nil {
+		t.Fatalf("UpsertMessage(B) error = %v", err)
+	}
+
+	// Verify both exist by querying each account specifically.
+	var countA, countB int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE account_id = ? AND gmail_id = ?`, "alice@example.com", msg.GmailID).Scan(&countA); err != nil {
+		t.Fatalf("count A error = %v", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE account_id = ? AND gmail_id = ?`, "bob@example.com", msg.GmailID).Scan(&countB); err != nil {
+		t.Fatalf("count B error = %v", err)
+	}
+
+	if countA != 1 || countB != 1 {
+		t.Fatalf("expected 1 message per account, got A=%d B=%d", countA, countB)
+	}
+}
+
 func TestUpsertMessageBCCRecipients(t *testing.T) {
 	t.Parallel()
 	db := openTestDB(t)

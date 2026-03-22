@@ -192,6 +192,71 @@ func TestToSQLAttachmentFilter(t *testing.T) {
 	}
 }
 
+func TestToSQLAccountIDFilter(t *testing.T) {
+	t.Parallel()
+
+	q := &Query{AccountID: "alice@example.com", Limit: 20}
+	sql, params := ToSQL(q)
+
+	if !strings.Contains(sql, "account_id = ?") {
+		t.Errorf("SQL does not contain account_id filter:\n%s", sql)
+	}
+
+	// params should be: account_id, limit, offset
+	if len(params) != 3 {
+		t.Fatalf("params count = %d, want 3", len(params))
+	}
+	if params[0] != "alice@example.com" {
+		t.Errorf("params[0] = %v, want %q", params[0], "alice@example.com")
+	}
+}
+
+func TestToSQLNoAccountIDFilter(t *testing.T) {
+	t.Parallel()
+
+	q := &Query{AccountID: "", Limit: 20}
+	sql, params := ToSQL(q)
+
+	if strings.Contains(sql, "account_id = ?") {
+		t.Errorf("SQL contains account_id filter when AccountID is empty:\n%s", sql)
+	}
+
+	// Only limit and offset params.
+	if len(params) != 2 {
+		t.Errorf("params count = %d, want 2", len(params))
+	}
+}
+
+func TestToSQLAccountIDArgPosition(t *testing.T) {
+	t.Parallel()
+
+	// Combine account_id with another filter to verify arg ordering.
+	after := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	q := &Query{
+		AccountID: "bob@example.com",
+		After:     &after,
+		Limit:     10,
+	}
+	sql, params := ToSQL(q)
+
+	if !strings.Contains(sql, "account_id = ?") {
+		t.Errorf("SQL does not contain account_id filter:\n%s", sql)
+	}
+
+	// params: after_millis, account_id, limit, offset
+	if len(params) != 4 {
+		t.Fatalf("params count = %d, want 4", len(params))
+	}
+
+	// The after date param comes first (date filter before account filter in code order).
+	if params[0] != after.UnixMilli() {
+		t.Errorf("params[0] = %v, want %d (after date millis)", params[0], after.UnixMilli())
+	}
+	if params[1] != "bob@example.com" {
+		t.Errorf("params[1] = %v, want %q (account_id)", params[1], "bob@example.com")
+	}
+}
+
 func TestToSQLEmptyQuery(t *testing.T) {
 	t.Parallel()
 
