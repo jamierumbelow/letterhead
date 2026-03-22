@@ -19,6 +19,7 @@ type Query struct {
 	Before        *time.Time // messages before this time
 	HasAttachment *bool      // filter by attachment presence
 	ThreadID      string     // filter by specific thread
+	AccountID     string     // filter by account
 	Limit         int        // max results (default 20)
 	Offset        int        // pagination offset
 }
@@ -33,6 +34,7 @@ type QueryFlags struct {
 	Before        string
 	HasAttachment *bool
 	ThreadID      string
+	AccountID     string
 	Limit         int
 	Offset        int
 }
@@ -47,6 +49,7 @@ func Parse(args []string, flags QueryFlags) (*Query, error) {
 		Labels:        flags.Labels,
 		HasAttachment: flags.HasAttachment,
 		ThreadID:      flags.ThreadID,
+		AccountID:     flags.AccountID,
 		Limit:         flags.Limit,
 		Offset:        flags.Offset,
 	}
@@ -144,6 +147,12 @@ func ToSQL(q *Query) (string, []interface{}) {
 		params = append(params, q.ThreadID)
 	}
 
+	// Account filter
+	if q.AccountID != "" {
+		conditions = append(conditions, `m.account_id = ?`)
+		params = append(params, q.AccountID)
+	}
+
 	where := ""
 	if len(conditions) > 0 {
 		where = "WHERE " + strings.Join(conditions, " AND ")
@@ -151,21 +160,23 @@ func ToSQL(q *Query) (string, []interface{}) {
 
 	// Thread-grouped query using a CTE to first filter matching messages,
 	// then group by thread and pick the latest message per thread.
+	// When account_id is present, group by (account_id, thread_id) since
+	// different accounts may have different thread_ids for the same conversation.
 	sql := fmt.Sprintf(`
 		WITH matched AS (
-			SELECT gmail_id, thread_id, subject, snippet, from_addr, from_name, internal_date
+			SELECT gmail_id, account_id, thread_id, subject, snippet, from_addr, from_name, internal_date
 			FROM messages m
 			%s
 		)
-		SELECT m2.thread_id, m2.subject, m2.snippet, m2.from_addr, m2.from_name,
+		SELECT m2.account_id, m2.thread_id, m2.subject, m2.snippet, m2.from_addr, m2.from_name,
 		       m2.internal_date,
-		       (SELECT COUNT(*) FROM matched WHERE thread_id = m2.thread_id) as msg_count
+		       (SELECT COUNT(*) FROM matched WHERE account_id = m2.account_id AND thread_id = m2.thread_id) as msg_count
 		FROM matched m2
 		INNER JOIN (
-			SELECT thread_id, MAX(internal_date) as max_date
+			SELECT account_id, thread_id, MAX(internal_date) as max_date
 			FROM matched
-			GROUP BY thread_id
-		) latest ON m2.thread_id = latest.thread_id AND m2.internal_date = latest.max_date
+			GROUP BY account_id, thread_id
+		) latest ON m2.account_id = latest.account_id AND m2.thread_id = latest.thread_id AND m2.internal_date = latest.max_date
 		ORDER BY m2.internal_date DESC
 		LIMIT ? OFFSET ?`, where)
 

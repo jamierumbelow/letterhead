@@ -22,6 +22,7 @@ func (s *Store) SearchThreads(ctx context.Context, q *query.Query) ([]types.Thre
 
 	for rows.Next() {
 		var (
+			accountID    string
 			threadID     string
 			subject      string
 			snippet      string
@@ -31,7 +32,7 @@ func (s *Store) SearchThreads(ctx context.Context, q *query.Query) ([]types.Thre
 			msgCount     int
 		)
 
-		if err := rows.Scan(&threadID, &subject, &snippet, &fromAddr, &fromName, &internalDate, &msgCount); err != nil {
+		if err := rows.Scan(&accountID, &threadID, &subject, &snippet, &fromAddr, &fromName, &internalDate, &msgCount); err != nil {
 			return nil, err
 		}
 
@@ -50,12 +51,13 @@ func (s *Store) SearchThreads(ctx context.Context, q *query.Query) ([]types.Thre
 		}
 
 		// Collect message IDs
-		messageIDs, err := s.ListMessageIDsInThread(ctx, "", threadID)
+		messageIDs, err := s.ListMessageIDsInThread(ctx, accountID, threadID)
 		if err != nil {
 			return nil, err
 		}
 
 		results = append(results, types.ThreadSummary{
+			AccountID:    accountID,
 			ThreadID:     threadID,
 			Subject:      subject,
 			Participants: participants,
