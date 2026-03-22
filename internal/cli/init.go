@@ -161,8 +161,11 @@ func ensureInitialized() (config.Config, error) {
 		return config.Config{}, err
 	}
 
-	// Run wizard if first run, or if account email is still missing
-	needsWizard := firstRun || cfg.AccountEmail == ""
+	// Migrate legacy single-account config
+	
+
+	// Run wizard if first run, or if no accounts configured
+	needsWizard := firstRun || (cfg.AccountEmail == "" && len(cfg.Accounts) == 0)
 	if needsWizard && isTTY() {
 		cfg, err = runSetupWizard(cfg)
 		if err != nil {
@@ -200,19 +203,36 @@ func ensureInitialized() (config.Config, error) {
 func runSetupWizard(cfg config.Config) (config.Config, error) {
 	reader := bufio.NewReader(os.Stdin)
 
+	// Migrate legacy config so we can show existing accounts
+	
+
+	if len(cfg.Accounts) > 0 {
+		// Re-running init with existing accounts
+		fmt.Printf("You have %d account(s) configured:\n", len(cfg.Accounts))
+		for i, acct := range cfg.Accounts {
+			fmt.Printf("  %d. %s (%s)\n", i+1, acct.Email, acct.AuthMethod)
+		}
+		fmt.Print("Add another account? [y/N]: ")
+		answer, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return cfg, err
+		}
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(answer)), "y") {
+			if err := promptNewAccount(reader, &cfg); err != nil {
+				return cfg, err
+			}
+		}
+
+		configPath, _ := config.ConfigPath()
+		fmt.Println()
+		fmt.Printf("Config saved to %s\n", configPath)
+		fmt.Println()
+		return cfg, nil
+	}
+
+	// First run: no accounts yet
 	fmt.Println("Welcome to letterhead! Let's get you set up.")
 	fmt.Println()
-
-	// Account email (required for sync)
-	fmt.Print("Gmail address: ")
-	email, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return cfg, err
-	}
-	email = strings.TrimSpace(email)
-	if email != "" {
-		cfg.AccountEmail = email
-	}
 
 	// Archive root (has a sensible default)
 	fmt.Printf("Archive location [%s]: ", cfg.ArchiveRoot)
@@ -225,6 +245,47 @@ func runSetupWizard(cfg config.Config) (config.Config, error) {
 		cfg.ArchiveRoot = root
 	}
 
+	// Prompt for first account
+	if err := promptNewAccount(reader, &cfg); err != nil {
+		return cfg, err
+	}
+
+	// Set legacy fields from first account for backward compat
+	if len(cfg.Accounts) > 0 {
+		cfg.AccountEmail = cfg.Accounts[0].Email
+		cfg.AuthMethod = cfg.Accounts[0].AuthMethod
+		cfg.DefaultAccount = cfg.Accounts[0].Email
+	}
+
+	configPath, _ := config.ConfigPath()
+	fmt.Println()
+	fmt.Printf("Config saved to %s\n", configPath)
+	fmt.Println()
+	fmt.Println("Next: letterhead sync")
+	fmt.Println()
+
+	return cfg, nil
+}
+
+// promptNewAccount prompts the user for email, auth method, and credentials,
+// then appends a new Account to cfg.Accounts. This is shared between the
+// setup wizard and the `accounts add` command.
+func promptNewAccount(reader *bufio.Reader, cfg *config.Config) error {
+	fmt.Print("Gmail address: ")
+	email, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return fmt.Errorf("email is required")
+	}
+
+	// Check for duplicate
+	if cfg.AccountByEmail(email) != nil {
+		return fmt.Errorf("account %s is already configured", email)
+	}
+
 	// Auth method choice
 	fmt.Println()
 	fmt.Println("Auth method:")
@@ -233,17 +294,16 @@ func runSetupWizard(cfg config.Config) (config.Config, error) {
 	fmt.Print("Choice [1]: ")
 	choice, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
-		return cfg, err
+		return err
 	}
 	choice = strings.TrimSpace(choice)
 
 	configPath, _ := config.ConfigPath()
 
+	acct := config.AccountConfig{Email: email}
+
 	if choice == "2" {
-		// OAuth flow
-		cfg.AuthMethod = config.AuthMethodOAuth
-		fmt.Println()
-		fmt.Printf("Config saved to %s\n", configPath)
+		acct.AuthMethod = config.AuthMethodOAuth
 		fmt.Println()
 		fmt.Println("To authenticate, you need Google OAuth credentials:")
 		fmt.Println("  1. Go to https://console.cloud.google.com")
@@ -253,10 +313,8 @@ func runSetupWizard(cfg config.Config) (config.Config, error) {
 		fmt.Printf("     %s/credentials.json\n", filepath.Dir(configPath))
 		fmt.Println()
 		fmt.Println("Then run: letterhead sync")
-		fmt.Println()
 	} else {
-		// App password flow (default)
-		cfg.AuthMethod = config.AuthMethodAppPassword
+		acct.AuthMethod = config.AuthMethodAppPassword
 		fmt.Println()
 		fmt.Println("To create an app password:")
 		fmt.Println("  1. Go to https://myaccount.google.com/apppasswords")
@@ -267,35 +325,37 @@ func runSetupWizard(cfg config.Config) (config.Config, error) {
 		fmt.Print("App password: ")
 		appPass, err := reader.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			return cfg, err
+			return err
 		}
 		appPass = strings.TrimSpace(appPass)
 		appPass = strings.ReplaceAll(appPass, " ", "")
 
-		if appPass != "" && cfg.AccountEmail != "" {
-			appPassPath, err := config.AppPasswordPath(cfg.AccountEmail)
+		if appPass != "" {
+			appPassPath, err := config.AppPasswordPath(email)
 			if err != nil {
-				return cfg, err
+				return err
 			}
 
 			if err := os.MkdirAll(filepath.Dir(appPassPath), 0o700); err != nil {
-				return cfg, err
+				return err
 			}
 
 			if err := os.WriteFile(appPassPath, []byte(appPass), 0o600); err != nil {
-				return cfg, err
+				return err
 			}
-		}
 
-		fmt.Println()
-		fmt.Printf("Config saved to %s\n", configPath)
-		fmt.Println("Credentials saved.")
-		fmt.Println()
-		fmt.Println("Then run: letterhead sync")
-		fmt.Println()
+			fmt.Println("Credentials saved.")
+		}
 	}
 
-	return cfg, nil
+	cfg.Accounts = append(cfg.Accounts, acct)
+
+	// Set default account if this is the first one
+	if cfg.DefaultAccount == "" {
+		cfg.DefaultAccount = email
+	}
+
+	return nil
 }
 
 func isTTY() bool {

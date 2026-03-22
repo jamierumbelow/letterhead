@@ -28,7 +28,7 @@ Description=Letterhead Gmail sync
 
 [Service]
 Type=oneshot
-ExecStart={{ .Bin }} sync
+ExecStart={{ .Bin }} sync --all
 
 [Install]
 WantedBy=default.target
