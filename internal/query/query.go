@@ -19,6 +19,7 @@ type Query struct {
 	Before        *time.Time // messages before this time
 	HasAttachment *bool      // filter by attachment presence
 	ThreadID      string     // filter by specific thread
+	AccountID     string     // filter by account
 	Limit         int        // max results (default 20)
 	Offset        int        // pagination offset
 }
@@ -33,6 +34,7 @@ type QueryFlags struct {
 	Before        string
 	HasAttachment *bool
 	ThreadID      string
+	AccountID     string
 	Limit         int
 	Offset        int
 }
@@ -47,6 +49,7 @@ func Parse(args []string, flags QueryFlags) (*Query, error) {
 		Labels:        flags.Labels,
 		HasAttachment: flags.HasAttachment,
 		ThreadID:      flags.ThreadID,
+		AccountID:     flags.AccountID,
 		Limit:         flags.Limit,
 		Offset:        flags.Offset,
 	}

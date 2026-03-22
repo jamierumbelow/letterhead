@@ -18,7 +18,9 @@ func newStatusCommand() *cobra.Command {
 		Use:   "status",
 		Short: "Show the current Letterhead status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			output, err := buildStatus()
+			accountFlag, _ := cmd.Flags().GetString("account")
+
+			output, err := buildStatus(accountFlag)
 			if err != nil {
 				return err
 			}
@@ -33,11 +35,11 @@ func newStatusCommand() *cobra.Command {
 	}
 }
 
-func buildStatus() (types.StatusOutput, error) {
+func buildStatus(accountFlag string) (types.StatusOutput, error) {
 	cfg, err := config.Load()
 	switch {
 	case err == nil:
-		return liveStatus(cfg)
+		return liveStatus(cfg, accountFlag)
 	case errors.Is(err, os.ErrNotExist):
 		cfg, err = config.Default()
 		if err != nil {
@@ -49,9 +51,25 @@ func buildStatus() (types.StatusOutput, error) {
 	}
 }
 
-func liveStatus(cfg config.Config) (types.StatusOutput, error) {
+func liveStatus(cfg config.Config, accountFlag string) (types.StatusOutput, error) {
+	// Determine which account to show status for.
+	var accountEmail string
+	if accountFlag != "" {
+		acct := cfg.AccountByEmail(accountFlag)
+		if acct == nil {
+			return types.StatusOutput{}, config.ErrAccountNotFound
+		}
+		accountEmail = acct.Email
+	} else {
+		// Default: use the resolved default/sole account if available.
+		acct, err := cfg.ResolveAccount("")
+		if err == nil {
+			accountEmail = acct.Email
+		}
+	}
+
 	out := types.StatusOutput{
-		Account:        accountDisplay(cfg.AccountEmail),
+		Account:        accountDisplay(accountEmail),
 		ArchivePath:    cfg.ArchiveRoot,
 		SyncMode:       string(cfg.SyncMode),
 		SchedulerState: "not installed",
@@ -77,8 +95,8 @@ func liveStatus(cfg config.Config) (types.StatusOutput, error) {
 	}
 
 	// Load sync state
-	if cfg.AccountEmail != "" {
-		syncState, err := s.GetSyncState(ctx, cfg.AccountEmail)
+	if accountEmail != "" {
+		syncState, err := s.GetSyncState(ctx, accountEmail)
 		if err == nil {
 			out.BootstrapComplete = syncState.BootstrapComplete
 			out.LastSyncAt = syncState.LastSyncAt

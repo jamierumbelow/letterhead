@@ -32,8 +32,9 @@ func newSyncCommand() *cobra.Command {
 				return err
 			}
 
-			if cfg.AccountEmail == "" {
-				return fmt.Errorf("account_email not set in config; add it to %s", configPathHint())
+			acct, err := resolveAccount(cmd, cfg)
+			if err != nil {
+				return err
 			}
 
 			// Acquire single-writer lock
@@ -68,24 +69,24 @@ func newSyncCommand() *cobra.Command {
 			var adapter mailclient.MailClient
 			var gmailClient *gmail.Client
 
-			switch cfg.AuthMethod {
+			switch acct.AuthMethod {
 			case config.AuthMethodAppPassword:
-				password, err := loadAppPassword(cfg.AccountEmail)
+				password, err := loadAppPassword(acct.Email)
 				if err != nil {
 					return err
 				}
 
-				imapClient := imapclient.New(cfg.AccountEmail, password)
+				imapClient := imapclient.New(acct.Email, password)
 				if err := imapClient.Connect(ctx); err != nil {
 					return err
 				}
 				defer imapClient.Close()
 
-				adapter = mailclient.NewIMAPAdapter(imapClient, cfg.AccountEmail)
+				adapter = mailclient.NewIMAPAdapter(imapClient, acct.Email)
 				fmt.Fprintln(cmd.ErrOrStderr(), "Connected via IMAP.")
 
 			default: // oauth
-				result, err := auth.GetClient(ctx, cfg.AccountEmail)
+				result, err := auth.GetClient(ctx, acct.Email)
 				if err != nil {
 					return err
 				}
@@ -103,25 +104,29 @@ func newSyncCommand() *cobra.Command {
 			}
 
 			// Check sync state to decide bootstrap vs incremental vs repair
-			syncState, _ := s.GetSyncState(ctx, cfg.AccountEmail)
+			syncState, _ := s.GetSyncState(ctx, acct.Email)
 			bootstrapComplete := syncState != nil && syncState.BootstrapComplete
 
 			// Incremental and repair sync only work with Gmail API
 			if gmailClient != nil {
 				if repair {
-					return runRepairSync(ctx, cmd, gmailClient, s, cfg.AccountEmail)
+					return runRepairSync(ctx, cmd, gmailClient, s, acct.Email)
 				}
 
 				if bootstrapComplete {
-					return runIncrementalSync(ctx, cmd, gmailClient, s, cfg.AccountEmail)
+					return runIncrementalSync(ctx, cmd, gmailClient, s, acct.Email)
 				}
 			}
 
-			query := syncer.QueryForMode(string(cfg.SyncMode), cfg.RecentWindowWeeks)
-			if cfg.SyncMode == "full" {
+			syncMode := acct.SyncMode
+			if syncMode == "" {
+				syncMode = cfg.SyncMode
+			}
+			query := syncer.QueryForMode(string(syncMode), cfg.RecentWindowWeeks)
+			if syncMode == "full" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "Full sync mode: this may take a long time for large mailboxes.")
 			}
-			return runBootstrapSync(ctx, cmd, adapter, s, cfg.AccountEmail, query)
+			return runBootstrapSync(ctx, cmd, adapter, s, acct.Email, query)
 		},
 	}
 

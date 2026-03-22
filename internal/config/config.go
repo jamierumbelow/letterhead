@@ -43,7 +43,15 @@ var (
 	ErrInvalidRecentWindow  = errors.New("recent window weeks must be greater than zero")
 	ErrInvalidCadence       = errors.New("scheduler cadence must be a valid duration")
 	ErrInvalidAuthMethod    = errors.New("auth method must be oauth or apppassword")
+	ErrAccountNotFound      = errors.New("account not found")
 )
+
+// AccountConfig holds per-account settings.
+type AccountConfig struct {
+	Email      string     `toml:"email"`
+	AuthMethod AuthMethod `toml:"auth_method"`
+	SyncMode   SyncMode   `toml:"sync_mode,omitempty"`
+}
 
 type Config struct {
 	ArchiveRoot       string     `toml:"archive_root"`
@@ -206,6 +214,43 @@ func TokenPath(accountEmail string) (string, error) {
 	fileName := tokenFilePrefix + hex.EncodeToString(sum[:]) + tokenFileSuffix
 
 	return filepath.Join(configHome, configDirName, fileName), nil
+}
+
+// ResolveAccount determines which account to use given an optional flag value.
+// In single-account mode, it returns the configured account. If flagValue is
+// provided, it must match the configured account email.
+func (c Config) ResolveAccount(flagValue string) (*AccountConfig, error) {
+	if c.AccountEmail == "" {
+		return nil, fmt.Errorf("%w: no account configured", ErrAccountNotFound)
+	}
+
+	acct := &AccountConfig{
+		Email:      c.AccountEmail,
+		AuthMethod: c.AuthMethod,
+		SyncMode:   c.SyncMode,
+	}
+
+	if flagValue != "" {
+		if strings.ToLower(strings.TrimSpace(flagValue)) != strings.ToLower(strings.TrimSpace(c.AccountEmail)) {
+			return nil, fmt.Errorf("%w: %q (available: %s)", ErrAccountNotFound, flagValue, c.AccountEmail)
+		}
+	}
+
+	return acct, nil
+}
+
+// AccountByEmail returns an AccountConfig if the email matches the
+// configured account, or nil otherwise.
+func (c Config) AccountByEmail(email string) *AccountConfig {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" || strings.ToLower(strings.TrimSpace(c.AccountEmail)) != email {
+		return nil
+	}
+	return &AccountConfig{
+		Email:      c.AccountEmail,
+		AuthMethod: c.AuthMethod,
+		SyncMode:   c.SyncMode,
+	}
 }
 
 func (c *Config) applyDefaults() {

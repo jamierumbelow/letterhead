@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/jamierumbelow/letterhead/internal/auth"
-	"github.com/jamierumbelow/letterhead/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -19,31 +18,24 @@ func newAuthCommand() *cobra.Command {
 				return err
 			}
 
-			if cfg.AccountEmail == "" {
-				return fmt.Errorf("account_email not set in config; add it to %s", configPathHint())
+			acct, err := resolveAccount(cmd, cfg)
+			if err != nil {
+				return err
 			}
 
-			if auth.IsAuthenticated(cfg.AccountEmail) {
-				fmt.Fprintln(cmd.OutOrStdout(), "Already authenticated as "+cfg.AccountEmail)
+			if auth.IsAuthenticated(acct.Email) {
+				fmt.Fprintln(cmd.OutOrStdout(), "Already authenticated as "+acct.Email)
 				return nil
 			}
 
-			result, err := auth.GetClient(context.Background(), cfg.AccountEmail)
+			result, err := auth.GetClient(context.Background(), acct.Email)
 			if err != nil {
 				return err
 			}
 			_ = result
 
-			fmt.Fprintln(cmd.OutOrStdout(), "Authenticated as "+cfg.AccountEmail)
+			fmt.Fprintln(cmd.OutOrStdout(), "Authenticated as "+acct.Email)
 			return nil
 		},
 	}
-}
-
-func configPathHint() string {
-	p, err := config.ConfigPath()
-	if err != nil {
-		return "~/.config/letterhead/config.toml"
-	}
-	return p
 }

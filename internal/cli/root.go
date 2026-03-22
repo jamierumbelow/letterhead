@@ -6,8 +6,9 @@ import (
 )
 
 type rootOptions struct {
-	json  bool
-	jsonl bool
+	json    bool
+	jsonl   bool
+	account string
 }
 
 func NewRootCommand() *cobra.Command {
@@ -30,6 +31,7 @@ func NewRootCommand() *cobra.Command {
 	flags := cmd.PersistentFlags()
 	flags.BoolVar(&opts.json, "json", false, "emit structured JSON output")
 	flags.BoolVar(&opts.jsonl, "jsonl", false, "emit structured JSONL output")
+	flags.StringVar(&opts.account, "account", "", "operate on a specific account email")
 	cmd.AddCommand(newInitCommand())
 	cmd.AddCommand(newAuthCommand())
 	cmd.AddCommand(newStatusCommand())
