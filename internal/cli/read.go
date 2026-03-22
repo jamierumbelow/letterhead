@@ -31,6 +31,8 @@ func newReadCommand() *cobra.Command {
 				return err
 			}
 
+			accountFlag, _ := cmd.Flags().GetString("account")
+
 			db, err := store.Open(store.DatabasePath(cfg.ArchiveRoot))
 			if err != nil {
 				return err
@@ -56,10 +58,10 @@ func newReadCommand() *cobra.Command {
 			})
 
 			if asThread {
-				return readThread(ctx, cmd, s, formatter, handle, readView)
+				return readThread(ctx, cmd, s, formatter, accountFlag, handle, readView)
 			}
 
-			return readSingle(ctx, cmd, s, formatter, handle, readView)
+			return readSingle(ctx, cmd, s, formatter, accountFlag, handle, readView)
 		},
 	}
 
@@ -69,12 +71,12 @@ func newReadCommand() *cobra.Command {
 	return cmd
 }
 
-func readSingle(ctx context.Context, cmd *cobra.Command, s *store.Store, formatter output.Formatter, handle string, view types.ReadView) error {
+func readSingle(ctx context.Context, cmd *cobra.Command, s *store.Store, formatter output.Formatter, accountID string, handle string, view types.ReadView) error {
 	// Try as message ID first
-	msg, err := s.GetMessage(ctx, handle)
+	msg, err := s.GetMessageForAccount(ctx, accountID, handle)
 	if err == sql.ErrNoRows {
 		// Try as thread ID — get the latest message
-		msgs, threadErr := s.GetMessagesInThread(ctx, handle)
+		msgs, threadErr := s.GetMessagesInThreadForAccount(ctx, accountID, handle)
 		if threadErr != nil || len(msgs) == 0 {
 			return fmt.Errorf("message or thread %q not found", handle)
 		}
@@ -88,17 +90,17 @@ func readSingle(ctx context.Context, cmd *cobra.Command, s *store.Store, formatt
 	return formatter.WriteRead(cmd.OutOrStdout(), output)
 }
 
-func readThread(ctx context.Context, cmd *cobra.Command, s *store.Store, formatter output.Formatter, handle string, view types.ReadView) error {
+func readThread(ctx context.Context, cmd *cobra.Command, s *store.Store, formatter output.Formatter, accountID string, handle string, view types.ReadView) error {
 	// Resolve thread ID
 	threadID := handle
 
 	// Check if handle is a message ID; if so, get its thread
-	msg, err := s.GetMessage(ctx, handle)
+	msg, err := s.GetMessageForAccount(ctx, accountID, handle)
 	if err == nil {
 		threadID = msg.ThreadID
 	}
 
-	msgs, err := s.GetMessagesInThread(ctx, threadID)
+	msgs, err := s.GetMessagesInThreadForAccount(ctx, accountID, threadID)
 	if err != nil {
 		return err
 	}

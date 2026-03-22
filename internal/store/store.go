@@ -202,6 +202,91 @@ func (s *Store) GetMessage(ctx context.Context, gmailID string) (*types.Message,
 	return &msg, nil
 }
 
+// GetMessageForAccount retrieves a single message by Gmail ID, optionally
+// scoped to a specific account. If accountID is empty, behaves like GetMessage.
+func (s *Store) GetMessageForAccount(ctx context.Context, accountID, gmailID string) (*types.Message, error) {
+	var queryStr string
+	var args []interface{}
+	if accountID != "" {
+		queryStr = `SELECT gmail_id, thread_id, history_id, internal_date, received_at,
+		       subject, snippet, from_addr, from_name,
+		       plain_body, html_body, attachment_metadata_json
+		FROM messages WHERE account_id = ? AND gmail_id = ?`
+		args = []interface{}{accountID, gmailID}
+	} else {
+		queryStr = `SELECT gmail_id, thread_id, history_id, internal_date, received_at,
+		       subject, snippet, from_addr, from_name,
+		       plain_body, html_body, attachment_metadata_json
+		FROM messages WHERE gmail_id = ?`
+		args = []interface{}{gmailID}
+	}
+
+	row := s.db.QueryRowContext(ctx, queryStr, args...)
+
+	var msg types.Message
+	var receivedAtUnix int64
+	var attachJSON string
+
+	err := row.Scan(
+		&msg.GmailID, &msg.ThreadID, &msg.HistoryID, &msg.InternalDate, &receivedAtUnix,
+		&msg.Subject, &msg.Snippet, &msg.From.Email, &msg.From.Name,
+		&msg.PlainBody, &msg.HTMLBody, &attachJSON,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	msg.ReceivedAt = time.Unix(receivedAtUnix, 0).UTC()
+
+	if err := json.Unmarshal([]byte(attachJSON), &msg.Attachments); err != nil {
+		return nil, err
+	}
+
+	// Load labels
+	labels, err := s.db.QueryContext(ctx, `SELECT label FROM message_labels WHERE gmail_id = ? ORDER BY label`, gmailID)
+	if err != nil {
+		return nil, err
+	}
+	defer labels.Close()
+	for labels.Next() {
+		var l string
+		if err := labels.Scan(&l); err != nil {
+			return nil, err
+		}
+		msg.Labels = append(msg.Labels, l)
+	}
+	if err := labels.Err(); err != nil {
+		return nil, err
+	}
+
+	// Load recipients
+	recips, err := s.db.QueryContext(ctx, `SELECT role, addr, name FROM message_recipients WHERE gmail_id = ? ORDER BY role, addr`, gmailID)
+	if err != nil {
+		return nil, err
+	}
+	defer recips.Close()
+	for recips.Next() {
+		var role, addr, name string
+		if err := recips.Scan(&role, &addr, &name); err != nil {
+			return nil, err
+		}
+		a := types.Address{Email: addr, Name: name}
+		switch role {
+		case "to":
+			msg.To = append(msg.To, a)
+		case "cc":
+			msg.CC = append(msg.CC, a)
+		case "bcc":
+			msg.BCC = append(msg.BCC, a)
+		}
+	}
+	if err := recips.Err(); err != nil {
+		return nil, err
+	}
+
+	return &msg, nil
+}
+
 // MessageExists returns true if a message with the given Gmail ID exists.
 func (s *Store) MessageExists(ctx context.Context, gmailID string) (bool, error) {
 	var exists int
@@ -243,10 +328,32 @@ func (s *Store) CountMessages(ctx context.Context) (int, error) {
 	return count, err
 }
 
+// CountMessagesForAccount returns the number of messages for a specific account.
+// If accountID is empty, counts all messages.
+func (s *Store) CountMessagesForAccount(ctx context.Context, accountID string) (int, error) {
+	if accountID == "" {
+		return s.CountMessages(ctx)
+	}
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE account_id = ?`, accountID).Scan(&count)
+	return count, err
+}
+
 // CountThreads returns the number of distinct threads.
 func (s *Store) CountThreads(ctx context.Context) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT thread_id) FROM messages`).Scan(&count)
+	return count, err
+}
+
+// CountThreadsForAccount returns the number of distinct threads for a specific account.
+// If accountID is empty, counts all threads.
+func (s *Store) CountThreadsForAccount(ctx context.Context, accountID string) (int, error) {
+	if accountID == "" {
+		return s.CountThreads(ctx)
+	}
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT thread_id) FROM messages WHERE account_id = ?`, accountID).Scan(&count)
 	return count, err
 }
 

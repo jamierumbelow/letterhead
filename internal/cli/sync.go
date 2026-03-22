@@ -21,7 +21,10 @@ import (
 )
 
 func newSyncCommand() *cobra.Command {
-	var repair bool
+	var (
+		repair bool
+		all    bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "sync",
@@ -30,10 +33,6 @@ func newSyncCommand() *cobra.Command {
 			cfg, err := ensureInitialized()
 			if err != nil {
 				return err
-			}
-
-			if cfg.AccountEmail == "" {
-				return fmt.Errorf("account_email not set in config; add it to %s", configPathHint())
 			}
 
 			// Acquire single-writer lock
@@ -64,73 +63,135 @@ func newSyncCommand() *cobra.Command {
 
 			s := store.New(db)
 
-			// Create the appropriate mail client based on auth method
-			var adapter mailclient.MailClient
-			var gmailClient *gmail.Client
-
-			switch cfg.AuthMethod {
-			case config.AuthMethodAppPassword:
-				password, err := loadAppPassword(cfg.AccountEmail)
-				if err != nil {
-					return err
-				}
-
-				imapClient := imapclient.New(cfg.AccountEmail, password)
-				if err := imapClient.Connect(ctx); err != nil {
-					return err
-				}
-				defer imapClient.Close()
-
-				adapter = mailclient.NewIMAPAdapter(imapClient, cfg.AccountEmail)
-				fmt.Fprintln(cmd.ErrOrStderr(), "Connected via IMAP.")
-
-			default: // oauth
-				result, err := auth.GetClient(ctx, cfg.AccountEmail)
-				if err != nil {
-					return err
-				}
-
-				if result.Method == auth.AuthMethodInteractive {
-					fmt.Fprintln(cmd.ErrOrStderr(), "Authenticated successfully.")
-				}
-
-				gmailClient, err = gmail.NewClient(ctx, result.Client)
-				if err != nil {
-					return err
-				}
-
-				adapter = mailclient.NewGmailAdapter(gmailClient)
+			if all {
+				return syncAllAccounts(ctx, cmd, cfg, s, repair)
 			}
 
-			// Check sync state to decide bootstrap vs incremental vs repair
-			syncState, _ := s.GetSyncState(ctx, cfg.AccountEmail)
-			bootstrapComplete := syncState != nil && syncState.BootstrapComplete
-
-			// Incremental and repair sync only work with Gmail API
-			if gmailClient != nil {
-				if repair {
-					return runRepairSync(ctx, cmd, gmailClient, s, cfg.AccountEmail)
-				}
-
-				if bootstrapComplete {
-					return runIncrementalSync(ctx, cmd, gmailClient, s, cfg.AccountEmail)
-				}
+			acct, err := resolveAccount(cmd, cfg)
+			if err != nil {
+				return err
 			}
 
-			query := syncer.QueryForMode(string(cfg.SyncMode), cfg.RecentWindowWeeks)
-			if cfg.SyncMode == "full" {
-				fmt.Fprintln(cmd.ErrOrStderr(), "Full sync mode: this may take a long time for large mailboxes.")
-			}
-			return runBootstrapSync(ctx, cmd, adapter, s, cfg.AccountEmail, query)
+			return syncOneAccount(ctx, cmd, cfg, s, acct, repair, false)
 		},
 	}
 
 	cmd.Flags().BoolVar(&repair, "repair", false, "Force a repair sync (re-diff against Gmail)")
+	cmd.Flags().BoolVar(&all, "all", false, "Sync all configured accounts")
 
 	cmd.AddCommand(newSyncInstallCommand())
 	cmd.AddCommand(newSyncUninstallCommand())
 
 	return cmd
+}
+
+func syncAllAccounts(ctx context.Context, cmd *cobra.Command, cfg config.Config, s *store.Store, repair bool) error {
+	if len(cfg.Accounts) == 0 {
+		return fmt.Errorf("no accounts configured")
+	}
+
+	multi := len(cfg.Accounts) > 1
+	var syncErrors []string
+
+	for i := range cfg.Accounts {
+		acct := &cfg.Accounts[i]
+		if multi {
+			fmt.Fprintf(cmd.ErrOrStderr(), "\n[%s] Starting sync...\n", acct.Email)
+		}
+
+		if err := syncOneAccount(ctx, cmd, cfg, s, acct, repair, multi); err != nil {
+			errMsg := fmt.Sprintf("%s: %v", acct.Email, err)
+			syncErrors = append(syncErrors, errMsg)
+			if multi {
+				fmt.Fprintf(cmd.ErrOrStderr(), "[%s] Error: %v\n", acct.Email, err)
+			}
+			continue
+		}
+	}
+
+	if multi && len(syncErrors) > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "\nSync completed with errors:\n")
+		for _, e := range syncErrors {
+			fmt.Fprintf(cmd.ErrOrStderr(), "  - %s\n", e)
+		}
+		return fmt.Errorf("%d of %d accounts failed to sync", len(syncErrors), len(cfg.Accounts))
+	}
+
+	if multi {
+		fmt.Fprintf(cmd.OutOrStdout(), "\nAll %d accounts synced successfully.\n", len(cfg.Accounts))
+	}
+
+	return nil
+}
+
+func syncOneAccount(ctx context.Context, cmd *cobra.Command, cfg config.Config, s *store.Store, acct *config.AccountConfig, repair bool, prefixOutput bool) error {
+	prefix := ""
+	if prefixOutput {
+		prefix = fmt.Sprintf("[%s] ", acct.Email)
+	}
+
+	// Create the appropriate mail client based on auth method
+	var adapter mailclient.MailClient
+	var gmailClient *gmail.Client
+
+	switch acct.AuthMethod {
+	case config.AuthMethodAppPassword:
+		password, err := loadAppPassword(acct.Email)
+		if err != nil {
+			return err
+		}
+
+		imapClient := imapclient.New(acct.Email, password)
+		if err := imapClient.Connect(ctx); err != nil {
+			return err
+		}
+		defer imapClient.Close()
+
+		adapter = mailclient.NewIMAPAdapter(imapClient, acct.Email)
+		fmt.Fprintf(cmd.ErrOrStderr(), "%sConnected via IMAP.\n", prefix)
+
+	default: // oauth
+		result, err := auth.GetClient(ctx, acct.Email)
+		if err != nil {
+			return err
+		}
+
+		if result.Method == auth.AuthMethodInteractive {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%sAuthenticated successfully.\n", prefix)
+		}
+
+		gmailClient, err = gmail.NewClient(ctx, result.Client)
+		if err != nil {
+			return err
+		}
+
+		adapter = mailclient.NewGmailAdapter(gmailClient)
+	}
+
+	// Check sync state to decide bootstrap vs incremental vs repair
+	syncState, _ := s.GetSyncState(ctx, acct.Email)
+	bootstrapComplete := syncState != nil && syncState.BootstrapComplete
+
+	// Incremental and repair sync only work with Gmail API
+	if gmailClient != nil {
+		if repair {
+			return runRepairSync(ctx, cmd, gmailClient, s, acct.Email, prefix)
+		}
+
+		if bootstrapComplete {
+			return runIncrementalSync(ctx, cmd, gmailClient, s, acct.Email, prefix)
+		}
+	}
+
+	syncMode := acct.SyncMode
+	if syncMode == "" {
+		syncMode = cfg.SyncMode
+	}
+	query := syncer.QueryForMode(string(syncMode), cfg.RecentWindowWeeks)
+	if syncMode == "full" {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%sFull sync mode: this may take a long time for large mailboxes.\n", prefix)
+	}
+	return runBootstrapSync(ctx, cmd, adapter, s, acct.Email, query, prefix)
 }
 
 func loadAppPassword(accountEmail string) (string, error) {
@@ -152,7 +213,7 @@ func loadAppPassword(accountEmail string) (string, error) {
 	return password, nil
 }
 
-func runBootstrapSync(ctx context.Context, cmd *cobra.Command, client mailclient.MailClient, s *store.Store, email string, query string) error {
+func runBootstrapSync(ctx context.Context, cmd *cobra.Command, client mailclient.MailClient, s *store.Store, email string, query string, prefix string) error {
 	runID, err := s.StartSyncRun(ctx, &store.SyncRun{
 		AccountID: email,
 		StartedAt: time.Now().UTC(),
@@ -169,7 +230,7 @@ func runBootstrapSync(ctx context.Context, cmd *cobra.Command, client mailclient
 	progress := func(synced int) {
 		totalSynced = synced
 		elapsed := time.Since(start).Truncate(time.Second)
-		fmt.Fprintf(cmd.ErrOrStderr(), "\rSynced %d messages (%s)", synced, elapsed)
+		fmt.Fprintf(cmd.ErrOrStderr(), "\r%sSynced %d messages (%s)", prefix, synced, elapsed)
 	}
 
 	bcfg := syncer.DefaultBootstrapConfig(email)
@@ -186,11 +247,11 @@ func runBootstrapSync(ctx context.Context, cmd *cobra.Command, client mailclient
 	elapsed := time.Since(start).Truncate(time.Second)
 	_ = s.FinishSyncRun(ctx, runID, "ok", totalSynced, "")
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Sync complete: %d messages in %s\n", totalSynced, elapsed)
+	fmt.Fprintf(cmd.OutOrStdout(), "%sSync complete: %d messages in %s\n", prefix, totalSynced, elapsed)
 	return nil
 }
 
-func runIncrementalSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client, s *store.Store, email string) error {
+func runIncrementalSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client, s *store.Store, email string, prefix string) error {
 	runID, err := s.StartSyncRun(ctx, &store.SyncRun{
 		AccountID: email,
 		StartedAt: time.Now().UTC(),
@@ -206,9 +267,9 @@ func runIncrementalSync(ctx context.Context, cmd *cobra.Command, client *gmail.C
 	result, err := syncer.Incremental(ctx, client, s, email)
 	if err != nil {
 		if errors.Is(err, gmail.ErrHistoryExpired) {
-			fmt.Fprintln(cmd.ErrOrStderr(), "History expired. Running repair sync...")
+			fmt.Fprintf(cmd.ErrOrStderr(), "%sHistory expired. Running repair sync...\n", prefix)
 			_ = s.FinishSyncRun(ctx, runID, "expired", 0, "history expired, falling back to repair")
-			return runRepairSync(ctx, cmd, client, s, email)
+			return runRepairSync(ctx, cmd, client, s, email, prefix)
 		}
 		_ = s.FinishSyncRun(ctx, runID, "error", 0, err.Error())
 		return err
@@ -217,12 +278,12 @@ func runIncrementalSync(ctx context.Context, cmd *cobra.Command, client *gmail.C
 	elapsed := time.Since(start).Truncate(time.Second)
 	_ = s.FinishSyncRun(ctx, runID, "ok", result.Added, "")
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Sync complete: %d added, %d deleted, %d label changes in %s\n",
-		result.Added, result.Deleted, result.Labels, elapsed)
+	fmt.Fprintf(cmd.OutOrStdout(), "%sSync complete: %d added, %d deleted, %d label changes in %s\n",
+		prefix, result.Added, result.Deleted, result.Labels, elapsed)
 	return nil
 }
 
-func runRepairSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client, s *store.Store, email string) error {
+func runRepairSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client, s *store.Store, email string, prefix string) error {
 	runID, err := s.StartSyncRun(ctx, &store.SyncRun{
 		AccountID: email,
 		StartedAt: time.Now().UTC(),
@@ -237,7 +298,7 @@ func runRepairSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client
 
 	progress := func(synced int) {
 		elapsed := time.Since(start).Truncate(time.Second)
-		fmt.Fprintf(cmd.ErrOrStderr(), "\rRepair: fetched %d messages (%s)", synced, elapsed)
+		fmt.Fprintf(cmd.ErrOrStderr(), "\r%sRepair: fetched %d messages (%s)", prefix, synced, elapsed)
 	}
 
 	result, err := syncer.RepairSync(ctx, client, s, email, "label:INBOX", progress)
@@ -252,7 +313,7 @@ func runRepairSync(ctx context.Context, cmd *cobra.Command, client *gmail.Client
 	elapsed := time.Since(start).Truncate(time.Second)
 	_ = s.FinishSyncRun(ctx, runID, "ok", result.Added, "")
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Repair complete: %d added, %d deleted in %s\n",
-		result.Added, result.Deleted, elapsed)
+	fmt.Fprintf(cmd.OutOrStdout(), "%sRepair complete: %d added, %d deleted in %s\n",
+		prefix, result.Added, result.Deleted, elapsed)
 	return nil
 }

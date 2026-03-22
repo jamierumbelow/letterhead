@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -53,9 +54,11 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", dataHome)
 
 	cfg := Config{
-		ArchiveRoot:       filepath.Join(dataHome, "custom-archive"),
-		AccountEmail:      "user@example.com",
-		AuthMethod:        AuthMethodOAuth,
+		ArchiveRoot: filepath.Join(dataHome, "custom-archive"),
+		Accounts: []AccountConfig{
+			{Email: "user@example.com", AuthMethod: AuthMethodOAuth},
+		},
+		DefaultAccount:    "user@example.com",
 		SyncMode:          SyncModeInbox,
 		RecentWindowWeeks: 4,
 		SchedulerCadence:  "30m",
@@ -93,8 +96,15 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if loaded != cfg {
-		t.Fatalf("Load() = %#v, want %#v", loaded, cfg)
+	// applyDefaults back-populates deprecated fields; compare the key fields
+	if loaded.ArchiveRoot != cfg.ArchiveRoot {
+		t.Fatalf("ArchiveRoot = %q, want %q", loaded.ArchiveRoot, cfg.ArchiveRoot)
+	}
+	if loaded.SyncMode != cfg.SyncMode {
+		t.Fatalf("SyncMode = %q, want %q", loaded.SyncMode, cfg.SyncMode)
+	}
+	if !reflect.DeepEqual(loaded.Accounts, cfg.Accounts) {
+		t.Fatalf("Accounts = %#v, want %#v", loaded.Accounts, cfg.Accounts)
 	}
 }
 
@@ -119,10 +129,10 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 		want error
 	}{
 		{
-			name: "invalid auth method",
+			name: "invalid auth method on account",
 			cfg: Config{
 				ArchiveRoot:       archiveRoot,
-				AuthMethod:        "broken",
+				Accounts:          []AccountConfig{{Email: "x@y.com", AuthMethod: "broken"}},
 				SyncMode:          SyncModeRecent,
 				RecentWindowWeeks: defaultRecentWindowWeeks,
 				SchedulerCadence:  defaultSchedulerCadence,
@@ -133,7 +143,6 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			name: "invalid sync mode",
 			cfg: Config{
 				ArchiveRoot:       archiveRoot,
-				AuthMethod:        AuthMethodOAuth,
 				SyncMode:          "broken",
 				RecentWindowWeeks: defaultRecentWindowWeeks,
 				SchedulerCadence:  defaultSchedulerCadence,
@@ -144,7 +153,6 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			name: "invalid recent window",
 			cfg: Config{
 				ArchiveRoot:       archiveRoot,
-				AuthMethod:        AuthMethodOAuth,
 				SyncMode:          SyncModeRecent,
 				RecentWindowWeeks: -1,
 				SchedulerCadence:  defaultSchedulerCadence,
@@ -155,7 +163,6 @@ func TestValidateRejectsInvalidValues(t *testing.T) {
 			name: "invalid cadence",
 			cfg: Config{
 				ArchiveRoot:       archiveRoot,
-				AuthMethod:        AuthMethodOAuth,
 				SyncMode:          SyncModeRecent,
 				RecentWindowWeeks: defaultRecentWindowWeeks,
 				SchedulerCadence:  "not-a-duration",

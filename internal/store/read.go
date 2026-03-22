@@ -68,6 +68,75 @@ func (s *Store) GetMessagesInThread(ctx context.Context, threadID string) ([]typ
 	return messages, nil
 }
 
+// GetMessagesInThreadForAccount returns all messages in the given thread,
+// optionally scoped to a specific account. If accountID is empty, behaves
+// like GetMessagesInThread.
+func (s *Store) GetMessagesInThreadForAccount(ctx context.Context, accountID, threadID string) ([]types.Message, error) {
+	var queryStr string
+	var args []interface{}
+	if accountID != "" {
+		queryStr = `SELECT gmail_id, thread_id, history_id, internal_date, received_at,
+		       subject, snippet, from_addr, from_name,
+		       plain_body, html_body, attachment_metadata_json
+		FROM messages
+		WHERE account_id = ? AND thread_id = ?
+		ORDER BY internal_date ASC`
+		args = []interface{}{accountID, threadID}
+	} else {
+		queryStr = `SELECT gmail_id, thread_id, history_id, internal_date, received_at,
+		       subject, snippet, from_addr, from_name,
+		       plain_body, html_body, attachment_metadata_json
+		FROM messages
+		WHERE thread_id = ?
+		ORDER BY internal_date ASC`
+		args = []interface{}{threadID}
+	}
+
+	rows, err := s.db.QueryContext(ctx, queryStr, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []types.Message
+	for rows.Next() {
+		var msg types.Message
+		var receivedAtUnix int64
+		var attachJSON string
+
+		if err := rows.Scan(
+			&msg.GmailID, &msg.ThreadID, &msg.HistoryID, &msg.InternalDate, &receivedAtUnix,
+			&msg.Subject, &msg.Snippet, &msg.From.Email, &msg.From.Name,
+			&msg.PlainBody, &msg.HTMLBody, &attachJSON,
+		); err != nil {
+			return nil, err
+		}
+
+		msg.ReceivedAt = time.Unix(receivedAtUnix, 0).UTC()
+
+		if err := json.Unmarshal([]byte(attachJSON), &msg.Attachments); err != nil {
+			return nil, err
+		}
+
+		messages = append(messages, msg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Populate labels and recipients for each message
+	for i := range messages {
+		if err := s.populateLabels(ctx, &messages[i]); err != nil {
+			return nil, err
+		}
+		if err := s.populateRecipients(ctx, &messages[i]); err != nil {
+			return nil, err
+		}
+	}
+
+	return messages, nil
+}
+
 // GetThreadSummary returns a ThreadSummary for the given thread ID.
 // The read_handle used by find is the thread_id directly.
 func (s *Store) GetThreadSummary(ctx context.Context, threadID string) (*types.ThreadSummary, error) {

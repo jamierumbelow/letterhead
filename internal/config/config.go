@@ -43,15 +43,29 @@ var (
 	ErrInvalidRecentWindow  = errors.New("recent window weeks must be greater than zero")
 	ErrInvalidCadence       = errors.New("scheduler cadence must be a valid duration")
 	ErrInvalidAuthMethod    = errors.New("auth method must be oauth or apppassword")
+	ErrAccountNotFound      = errors.New("account not found")
+	ErrAmbiguousAccount     = errors.New("multiple accounts configured; specify --account or set default_account")
+	ErrDuplicateAccount     = errors.New("duplicate account email")
 )
 
+// AccountConfig holds per-account settings.
+type AccountConfig struct {
+	Email      string     `toml:"email"`
+	AuthMethod AuthMethod `toml:"auth_method"`
+	SyncMode   SyncMode   `toml:"sync_mode,omitempty"`
+}
+
 type Config struct {
-	ArchiveRoot       string     `toml:"archive_root"`
-	AccountEmail      string     `toml:"account_email"`
-	AuthMethod        AuthMethod `toml:"auth_method"`
-	SyncMode          SyncMode   `toml:"sync_mode"`
-	RecentWindowWeeks int        `toml:"recent_window_weeks"`
-	SchedulerCadence  string     `toml:"scheduler_cadence"`
+	ArchiveRoot       string          `toml:"archive_root"`
+	DefaultAccount    string          `toml:"default_account,omitempty"`
+	Accounts          []AccountConfig `toml:"accounts"`
+	SyncMode          SyncMode        `toml:"sync_mode"`
+	RecentWindowWeeks int             `toml:"recent_window_weeks"`
+	SchedulerCadence  string          `toml:"scheduler_cadence"`
+
+	// Deprecated: kept for backward-compatible loading only.
+	AccountEmail string     `toml:"account_email,omitempty"`
+	AuthMethod   AuthMethod `toml:"auth_method,omitempty"`
 }
 
 func Default() (Config, error) {
@@ -62,6 +76,7 @@ func Default() (Config, error) {
 
 	return Config{
 		ArchiveRoot:       archiveRoot,
+		Accounts:          []AccountConfig{},
 		SyncMode:          SyncModeRecent,
 		RecentWindowWeeks: defaultRecentWindowWeeks,
 		SchedulerCadence:  defaultSchedulerCadence,
@@ -86,6 +101,18 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// configWritable is the serialization struct for Save(). It omits
+// the deprecated flat AccountEmail/AuthMethod fields so they are
+// never written to new config files.
+type configWritable struct {
+	ArchiveRoot       string          `toml:"archive_root"`
+	DefaultAccount    string          `toml:"default_account,omitempty"`
+	Accounts          []AccountConfig `toml:"accounts"`
+	SyncMode          SyncMode        `toml:"sync_mode"`
+	RecentWindowWeeks int             `toml:"recent_window_weeks"`
+	SchedulerCadence  string          `toml:"scheduler_cadence"`
 }
 
 func Save(cfg Config) error {
@@ -122,8 +149,17 @@ func Save(cfg Config) error {
 		return err
 	}
 
+	writable := configWritable{
+		ArchiveRoot:       cfg.ArchiveRoot,
+		DefaultAccount:    cfg.DefaultAccount,
+		Accounts:          cfg.Accounts,
+		SyncMode:          cfg.SyncMode,
+		RecentWindowWeeks: cfg.RecentWindowWeeks,
+		SchedulerCadence:  cfg.SchedulerCadence,
+	}
+
 	encoder := toml.NewEncoder(file)
-	if err := encoder.Encode(cfg); err != nil {
+	if err := encoder.Encode(writable); err != nil {
 		_ = file.Close()
 		return err
 	}
@@ -142,10 +178,6 @@ func Save(cfg Config) error {
 }
 
 func (c Config) Validate() error {
-	if !c.AuthMethod.valid() {
-		return fmt.Errorf("%w: %q", ErrInvalidAuthMethod, c.AuthMethod)
-	}
-
 	if !c.SyncMode.valid() {
 		return fmt.Errorf("%w: %q", ErrInvalidSyncMode, c.SyncMode)
 	}
@@ -162,6 +194,25 @@ func (c Config) Validate() error {
 		return errors.New("archive root is required")
 	}
 
+	// Validate each account.
+	seen := make(map[string]bool, len(c.Accounts))
+	for i, acct := range c.Accounts {
+		if strings.TrimSpace(acct.Email) == "" {
+			return fmt.Errorf("%w: account[%d]", ErrAccountEmailRequired, i)
+		}
+		lower := strings.ToLower(acct.Email)
+		if seen[lower] {
+			return fmt.Errorf("%w: %q", ErrDuplicateAccount, acct.Email)
+		}
+		seen[lower] = true
+		if !acct.AuthMethod.valid() {
+			return fmt.Errorf("%w: %q (account %q)", ErrInvalidAuthMethod, acct.AuthMethod, acct.Email)
+		}
+		if acct.SyncMode != "" && !acct.SyncMode.valid() {
+			return fmt.Errorf("%w: %q (account %q)", ErrInvalidSyncMode, acct.SyncMode, acct.Email)
+		}
+	}
+
 	return nil
 }
 
@@ -171,6 +222,54 @@ func (c Config) SchedulerInterval() (time.Duration, error) {
 	}
 
 	return time.ParseDuration(c.SchedulerCadence)
+}
+
+// ResolveAccount determines which account to use given an optional flag value.
+// Priority: explicit flag > DefaultAccount > sole account.
+func (c Config) ResolveAccount(flagValue string) (*AccountConfig, error) {
+	if flagValue != "" {
+		acct := c.AccountByEmail(flagValue)
+		if acct == nil {
+			emails := make([]string, len(c.Accounts))
+			for i, a := range c.Accounts {
+				emails[i] = a.Email
+			}
+			return nil, fmt.Errorf("%w: %q (available: %s)", ErrAccountNotFound, flagValue, strings.Join(emails, ", "))
+		}
+		return acct, nil
+	}
+
+	if c.DefaultAccount != "" {
+		acct := c.AccountByEmail(c.DefaultAccount)
+		if acct == nil {
+			return nil, fmt.Errorf("%w: default %q", ErrAccountNotFound, c.DefaultAccount)
+		}
+		return acct, nil
+	}
+
+	switch len(c.Accounts) {
+	case 0:
+		return nil, fmt.Errorf("%w: no accounts configured", ErrAccountNotFound)
+	case 1:
+		return &c.Accounts[0], nil
+	default:
+		emails := make([]string, len(c.Accounts))
+		for i, a := range c.Accounts {
+			emails[i] = a.Email
+		}
+		return nil, fmt.Errorf("%w: %s", ErrAmbiguousAccount, strings.Join(emails, ", "))
+	}
+}
+
+// AccountByEmail returns a pointer to the matching AccountConfig, or nil.
+func (c Config) AccountByEmail(email string) *AccountConfig {
+	email = strings.ToLower(strings.TrimSpace(email))
+	for i := range c.Accounts {
+		if strings.ToLower(strings.TrimSpace(c.Accounts[i].Email)) == email {
+			return &c.Accounts[i]
+		}
+	}
+	return nil
 }
 
 func ConfigPath() (string, error) {
@@ -209,10 +308,6 @@ func TokenPath(accountEmail string) (string, error) {
 }
 
 func (c *Config) applyDefaults() {
-	if c.AuthMethod == "" {
-		c.AuthMethod = AuthMethodOAuth
-	}
-
 	if c.SyncMode == "" {
 		c.SyncMode = SyncModeRecent
 	}
@@ -229,6 +324,32 @@ func (c *Config) applyDefaults() {
 		if archiveRoot, err := DefaultArchiveRoot(); err == nil {
 			c.ArchiveRoot = archiveRoot
 		}
+	}
+
+	// Migrate deprecated flat fields into Accounts slice.
+	if c.AccountEmail != "" && len(c.Accounts) == 0 {
+		authMethod := c.AuthMethod
+		if authMethod == "" {
+			authMethod = AuthMethodOAuth
+		}
+		c.Accounts = append(c.Accounts, AccountConfig{
+			Email:      c.AccountEmail,
+			AuthMethod: authMethod,
+		})
+		c.DefaultAccount = c.AccountEmail
+		c.AccountEmail = ""
+		c.AuthMethod = ""
+	}
+
+	// Back-populate deprecated fields for backward compat with existing code.
+	if c.AccountEmail == "" && len(c.Accounts) > 0 {
+		c.AccountEmail = c.Accounts[0].Email
+		c.AuthMethod = c.Accounts[0].AuthMethod
+	}
+
+	// Default auth method on the deprecated field when no accounts exist.
+	if c.AuthMethod == "" {
+		c.AuthMethod = AuthMethodOAuth
 	}
 }
 

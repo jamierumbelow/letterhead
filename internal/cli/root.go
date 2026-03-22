@@ -30,6 +30,7 @@ func NewRootCommand() *cobra.Command {
 	flags := cmd.PersistentFlags()
 	flags.BoolVar(&opts.json, "json", false, "emit structured JSON output")
 	flags.BoolVar(&opts.jsonl, "jsonl", false, "emit structured JSONL output")
+	flags.String("account", "", "operate on a specific account email")
 	cmd.AddCommand(newInitCommand())
 	cmd.AddCommand(newAuthCommand())
 	cmd.AddCommand(newStatusCommand())

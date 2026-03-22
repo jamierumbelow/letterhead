@@ -80,8 +80,28 @@ func (humanFormatter) WriteStatus(w io.Writer, output types.StatusOutput) error 
 		output.SchedulerState,
 		output.DBHealth,
 	)
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Display per-account details when multiple accounts are present
+	if len(output.Accounts) > 0 {
+		fmt.Fprintln(w, "\nAccounts:")
+		for _, acct := range output.Accounts {
+			authStatus := "no"
+			if acct.Authenticated {
+				authStatus = "yes"
+			}
+			acctLastSync := "never"
+			if acct.LastSyncAt != nil {
+				acctLastSync = acct.LastSyncAt.Format(time.RFC3339)
+			}
+			fmt.Fprintf(w, "  %s  auth=%s  method=%s  messages=%d  last_sync=%s\n",
+				acct.Email, authStatus, acct.AuthMethod, acct.MessageCount, acctLastSync)
+		}
+	}
+
+	return nil
 }
 
 func (humanFormatter) WriteFind(w io.Writer, output types.FindOutput) error {
