@@ -10,24 +10,35 @@ const (
 	ReadViewFull    ReadView = "full"
 )
 
+// AccountStatus represents the status of a single account in multi-account mode.
+type AccountStatus struct {
+	Email         string     `json:"email"`
+	AuthMethod    string     `json:"auth_method"`
+	Authenticated bool       `json:"authenticated"`
+	MessageCount  int        `json:"message_count"`
+	LastSyncAt    *time.Time `json:"last_sync_at"`
+}
+
 // StatusOutput is the stable machine-readable contract for `letterhead status`.
 type StatusOutput struct {
-	Account           string     `json:"account"`
-	ArchivePath       string     `json:"archive_path"`
-	SyncMode          string     `json:"sync_mode"`
-	MessageCount      int        `json:"message_count"`
-	ThreadCount       int        `json:"thread_count"`
-	BootstrapComplete bool       `json:"bootstrap_complete"`
-	BootstrapProgress float64    `json:"bootstrap_progress"`
-	LastSyncAt        *time.Time `json:"last_sync_at"`
-	SchedulerState    string     `json:"scheduler_state"`
-	DBHealth          string     `json:"db_health"`
+	Account           string          `json:"account"`
+	ArchivePath       string          `json:"archive_path"`
+	SyncMode          string          `json:"sync_mode"`
+	MessageCount      int             `json:"message_count"`
+	ThreadCount       int             `json:"thread_count"`
+	BootstrapComplete bool            `json:"bootstrap_complete"`
+	BootstrapProgress float64         `json:"bootstrap_progress"`
+	LastSyncAt        *time.Time      `json:"last_sync_at"`
+	SchedulerState    string          `json:"scheduler_state"`
+	DBHealth          string          `json:"db_health"`
+	Accounts          []AccountStatus `json:"accounts,omitempty"`
+	ArchiveSize       int64           `json:"archive_size,omitempty"`
 }
 
 // FindResult is the stable machine-readable contract for one `letterhead find` result.
 type FindResult struct {
 	ResultID      string    `json:"result_id"`
-	AccountID     string    `json:"account_id"`
+	AccountID     string    `json:"account_id,omitempty"`
 	ThreadID      string    `json:"thread_id"`
 	Subject       string    `json:"subject"`
 	Participants  []string  `json:"participants"`
