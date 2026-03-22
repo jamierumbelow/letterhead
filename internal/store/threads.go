@@ -50,7 +50,7 @@ func (s *Store) SearchThreads(ctx context.Context, q *query.Query) ([]types.Thre
 		}
 
 		// Collect message IDs
-		messageIDs, err := s.ListMessageIDsInThread(ctx, threadID)
+		messageIDs, err := s.ListMessageIDsInThread(ctx, "", threadID)
 		if err != nil {
 			return nil, err
 		}

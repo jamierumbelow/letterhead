@@ -71,10 +71,10 @@ func newReadCommand() *cobra.Command {
 
 func readSingle(ctx context.Context, cmd *cobra.Command, s *store.Store, formatter output.Formatter, handle string, view types.ReadView) error {
 	// Try as message ID first
-	msg, err := s.GetMessage(ctx, handle)
+	msg, err := s.GetMessage(ctx, "", handle)
 	if err == sql.ErrNoRows {
 		// Try as thread ID — get the latest message
-		msgs, threadErr := s.GetMessagesInThread(ctx, handle)
+		msgs, threadErr := s.GetMessagesInThread(ctx, "", handle)
 		if threadErr != nil || len(msgs) == 0 {
 			return fmt.Errorf("message or thread %q not found", handle)
 		}
@@ -93,12 +93,12 @@ func readThread(ctx context.Context, cmd *cobra.Command, s *store.Store, formatt
 	threadID := handle
 
 	// Check if handle is a message ID; if so, get its thread
-	msg, err := s.GetMessage(ctx, handle)
+	msg, err := s.GetMessage(ctx, "", handle)
 	if err == nil {
 		threadID = msg.ThreadID
 	}
 
-	msgs, err := s.GetMessagesInThread(ctx, threadID)
+	msgs, err := s.GetMessagesInThread(ctx, "", threadID)
 	if err != nil {
 		return err
 	}

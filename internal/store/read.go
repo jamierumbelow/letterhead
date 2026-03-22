@@ -10,20 +10,35 @@ import (
 
 // GetMessageByID retrieves a single message by Gmail ID, including
 // labels and recipients. This is an alias for GetMessage for read-command clarity.
-func (s *Store) GetMessageByID(ctx context.Context, gmailID string) (*types.Message, error) {
-	return s.GetMessage(ctx, gmailID)
+func (s *Store) GetMessageByID(ctx context.Context, accountID, gmailID string) (*types.Message, error) {
+	return s.GetMessage(ctx, accountID, gmailID)
 }
 
 // GetMessagesInThread returns all messages in the given thread,
 // ordered by internal_date ASC, with labels and recipients populated.
-func (s *Store) GetMessagesInThread(ctx context.Context, threadID string) ([]types.Message, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT gmail_id, thread_id, history_id, internal_date, received_at,
+// When accountID is non-empty the query is scoped to that account.
+func (s *Store) GetMessagesInThread(ctx context.Context, accountID, threadID string) ([]types.Message, error) {
+	var q string
+	var args []interface{}
+	if accountID != "" {
+		q = `SELECT gmail_id, thread_id, history_id, internal_date, received_at,
+		       subject, snippet, from_addr, from_name,
+		       plain_body, html_body, attachment_metadata_json
+		FROM messages
+		WHERE account_id = ? AND thread_id = ?
+		ORDER BY internal_date ASC`
+		args = []interface{}{accountID, threadID}
+	} else {
+		q = `SELECT gmail_id, thread_id, history_id, internal_date, received_at,
 		       subject, snippet, from_addr, from_name,
 		       plain_body, html_body, attachment_metadata_json
 		FROM messages
 		WHERE thread_id = ?
-		ORDER BY internal_date ASC`, threadID)
+		ORDER BY internal_date ASC`
+		args = []interface{}{threadID}
+	}
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -57,10 +72,10 @@ func (s *Store) GetMessagesInThread(ctx context.Context, threadID string) ([]typ
 
 	// Populate labels and recipients for each message
 	for i := range messages {
-		if err := s.populateLabels(ctx, &messages[i]); err != nil {
+		if err := s.populateLabels(ctx, accountID, &messages[i]); err != nil {
 			return nil, err
 		}
-		if err := s.populateRecipients(ctx, &messages[i]); err != nil {
+		if err := s.populateRecipients(ctx, accountID, &messages[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -69,14 +84,27 @@ func (s *Store) GetMessagesInThread(ctx context.Context, threadID string) ([]typ
 }
 
 // GetThreadSummary returns a ThreadSummary for the given thread ID.
-// The read_handle used by find is the thread_id directly.
-func (s *Store) GetThreadSummary(ctx context.Context, threadID string) (*types.ThreadSummary, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT thread_id, COUNT(*) as msg_count,
+// When accountID is non-empty queries are scoped to that account.
+func (s *Store) GetThreadSummary(ctx context.Context, accountID, threadID string) (*types.ThreadSummary, error) {
+	var q string
+	var args []interface{}
+	if accountID != "" {
+		q = `SELECT thread_id, COUNT(*) as msg_count,
+		       MAX(internal_date) as latest_date
+		FROM messages
+		WHERE account_id = ? AND thread_id = ?
+		GROUP BY thread_id`
+		args = []interface{}{accountID, threadID}
+	} else {
+		q = `SELECT thread_id, COUNT(*) as msg_count,
 		       MAX(internal_date) as latest_date
 		FROM messages
 		WHERE thread_id = ?
-		GROUP BY thread_id`, threadID)
+		GROUP BY thread_id`
+		args = []interface{}{threadID}
+	}
+
+	row := s.db.QueryRowContext(ctx, q, args...)
 
 	var summary types.ThreadSummary
 	var latestDate int64
@@ -88,18 +116,43 @@ func (s *Store) GetThreadSummary(ctx context.Context, threadID string) (*types.T
 	summary.LatestAt = time.Unix(0, latestDate*int64(time.Millisecond)).UTC()
 
 	// Get subject and snippet from the latest message
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT subject, snippet
+	var subjectQ string
+	var subjectArgs []interface{}
+	if accountID != "" {
+		subjectQ = `SELECT subject, snippet
+		FROM messages
+		WHERE account_id = ? AND thread_id = ?
+		ORDER BY internal_date DESC
+		LIMIT 1`
+		subjectArgs = []interface{}{accountID, threadID}
+	} else {
+		subjectQ = `SELECT subject, snippet
 		FROM messages
 		WHERE thread_id = ?
 		ORDER BY internal_date DESC
-		LIMIT 1`, threadID).Scan(&summary.Subject, &summary.Snippet); err != nil {
+		LIMIT 1`
+		subjectArgs = []interface{}{threadID}
+	}
+	if err := s.db.QueryRowContext(ctx, subjectQ, subjectArgs...).Scan(&summary.Subject, &summary.Snippet); err != nil {
 		return nil, err
 	}
 
 	// Collect participants
-	participantRows, err := s.db.QueryContext(ctx, `
+	var partQ string
+	var partArgs []interface{}
+	if accountID != "" {
+		partQ = `SELECT DISTINCT
+			CASE WHEN from_name != '' THEN from_name ELSE from_addr END as participant
+		FROM messages WHERE account_id = ? AND thread_id = ?
+		UNION
 		SELECT DISTINCT
+			CASE WHEN name != '' THEN name ELSE addr END as participant
+		FROM message_recipients WHERE gmail_id IN (
+			SELECT gmail_id FROM messages WHERE account_id = ? AND thread_id = ?
+		)`
+		partArgs = []interface{}{accountID, threadID, accountID, threadID}
+	} else {
+		partQ = `SELECT DISTINCT
 			CASE WHEN from_name != '' THEN from_name ELSE from_addr END as participant
 		FROM messages WHERE thread_id = ?
 		UNION
@@ -107,7 +160,11 @@ func (s *Store) GetThreadSummary(ctx context.Context, threadID string) (*types.T
 			CASE WHEN name != '' THEN name ELSE addr END as participant
 		FROM message_recipients WHERE gmail_id IN (
 			SELECT gmail_id FROM messages WHERE thread_id = ?
-		)`, threadID, threadID)
+		)`
+		partArgs = []interface{}{threadID, threadID}
+	}
+
+	participantRows, err := s.db.QueryContext(ctx, partQ, partArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -125,11 +182,23 @@ func (s *Store) GetThreadSummary(ctx context.Context, threadID string) (*types.T
 	}
 
 	// Collect labels
-	labelRows, err := s.db.QueryContext(ctx, `
-		SELECT DISTINCT label
+	var labelQ string
+	var labelArgs []interface{}
+	if accountID != "" {
+		labelQ = `SELECT DISTINCT label
+		FROM message_labels
+		WHERE gmail_id IN (SELECT gmail_id FROM messages WHERE account_id = ? AND thread_id = ?)
+		ORDER BY label`
+		labelArgs = []interface{}{accountID, threadID}
+	} else {
+		labelQ = `SELECT DISTINCT label
 		FROM message_labels
 		WHERE gmail_id IN (SELECT gmail_id FROM messages WHERE thread_id = ?)
-		ORDER BY label`, threadID)
+		ORDER BY label`
+		labelArgs = []interface{}{threadID}
+	}
+
+	labelRows, err := s.db.QueryContext(ctx, labelQ, labelArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +216,7 @@ func (s *Store) GetThreadSummary(ctx context.Context, threadID string) (*types.T
 	}
 
 	// Collect message IDs
-	ids, err := s.ListMessageIDsInThread(ctx, threadID)
+	ids, err := s.ListMessageIDsInThread(ctx, accountID, threadID)
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +225,17 @@ func (s *Store) GetThreadSummary(ctx context.Context, threadID string) (*types.T
 	return &summary, nil
 }
 
-func (s *Store) populateLabels(ctx context.Context, msg *types.Message) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT label FROM message_labels WHERE gmail_id = ? ORDER BY label`, msg.GmailID)
+func (s *Store) populateLabels(ctx context.Context, accountID string, msg *types.Message) error {
+	var q string
+	var args []interface{}
+	if accountID != "" {
+		q = `SELECT label FROM message_labels WHERE account_id = ? AND gmail_id = ? ORDER BY label`
+		args = []interface{}{accountID, msg.GmailID}
+	} else {
+		q = `SELECT label FROM message_labels WHERE gmail_id = ? ORDER BY label`
+		args = []interface{}{msg.GmailID}
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return err
 	}
@@ -174,8 +252,17 @@ func (s *Store) populateLabels(ctx context.Context, msg *types.Message) error {
 	return rows.Err()
 }
 
-func (s *Store) populateRecipients(ctx context.Context, msg *types.Message) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT role, addr, name FROM message_recipients WHERE gmail_id = ? ORDER BY role, addr`, msg.GmailID)
+func (s *Store) populateRecipients(ctx context.Context, accountID string, msg *types.Message) error {
+	var q string
+	var args []interface{}
+	if accountID != "" {
+		q = `SELECT role, addr, name FROM message_recipients WHERE account_id = ? AND gmail_id = ? ORDER BY role, addr`
+		args = []interface{}{accountID, msg.GmailID}
+	} else {
+		q = `SELECT role, addr, name FROM message_recipients WHERE gmail_id = ? ORDER BY role, addr`
+		args = []interface{}{msg.GmailID}
+	}
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return err
 	}

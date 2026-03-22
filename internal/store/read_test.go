@@ -46,7 +46,7 @@ func TestGetMessagesInThread(t *testing.T) {
 	}
 
 	// Get thread_1 messages
-	result, err := s.GetMessagesInThread(ctx, "thread_1")
+	result, err := s.GetMessagesInThread(ctx, "", "thread_1")
 	if err != nil {
 		t.Fatalf("GetMessagesInThread() error = %v", err)
 	}
@@ -80,7 +80,7 @@ func TestGetMessagesInThreadEmpty(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	result, err := s.GetMessagesInThread(ctx, "nonexistent")
+	result, err := s.GetMessagesInThread(ctx, "", "nonexistent")
 	if err != nil {
 		t.Fatalf("GetMessagesInThread() error = %v", err)
 	}
@@ -120,7 +120,7 @@ func TestGetThreadSummary(t *testing.T) {
 		}
 	}
 
-	summary, err := s.GetThreadSummary(ctx, "thread_1")
+	summary, err := s.GetThreadSummary(ctx, "", "thread_1")
 	if err != nil {
 		t.Fatalf("GetThreadSummary() error = %v", err)
 	}
@@ -158,7 +158,7 @@ func TestGetThreadSummaryNotFound(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	_, err := s.GetThreadSummary(ctx, "nonexistent")
+	_, err := s.GetThreadSummary(ctx, "", "nonexistent")
 	if err != sql.ErrNoRows {
 		t.Fatalf("GetThreadSummary() error = %v, want sql.ErrNoRows", err)
 	}

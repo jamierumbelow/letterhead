@@ -39,7 +39,7 @@ func newRebuildCommand() *cobra.Command {
 				return fmt.Errorf("rebuild FTS: %w", err)
 			}
 
-			count, _ := s.CountMessages(ctx)
+			count, _ := s.CountMessages(ctx, "")
 			elapsed := time.Since(start).Truncate(time.Millisecond)
 
 			fmt.Fprintf(cmd.OutOrStdout(), "FTS index rebuilt: %d messages in %s\n", count, elapsed)

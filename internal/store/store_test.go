@@ -53,7 +53,7 @@ func TestUpsertAndGetMessage(t *testing.T) {
 		t.Fatalf("UpsertMessage() error = %v", err)
 	}
 
-	got, err := s.GetMessage(ctx, "msg_001")
+	got, err := s.GetMessage(ctx, "", "msg_001")
 	if err != nil {
 		t.Fatalf("GetMessage() error = %v", err)
 	}
@@ -125,7 +125,7 @@ func TestUpsertMessageUpdatesExisting(t *testing.T) {
 		t.Fatalf("second UpsertMessage() error = %v", err)
 	}
 
-	got, err := s.GetMessage(ctx, "msg_001")
+	got, err := s.GetMessage(ctx, "", "msg_001")
 	if err != nil {
 		t.Fatalf("GetMessage() error = %v", err)
 	}
@@ -150,7 +150,7 @@ func TestGetMessageNotFound(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	_, err := s.GetMessage(ctx, "nonexistent")
+	_, err := s.GetMessage(ctx, "", "nonexistent")
 	if err != sql.ErrNoRows {
 		t.Fatalf("GetMessage() error = %v, want sql.ErrNoRows", err)
 	}
@@ -162,7 +162,7 @@ func TestMessageExists(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	exists, err := s.MessageExists(ctx, "msg_001")
+	exists, err := s.MessageExists(ctx, "", "msg_001")
 	if err != nil {
 		t.Fatalf("MessageExists() error = %v", err)
 	}
@@ -174,7 +174,7 @@ func TestMessageExists(t *testing.T) {
 		t.Fatalf("UpsertMessage() error = %v", err)
 	}
 
-	exists, err = s.MessageExists(ctx, "msg_001")
+	exists, err = s.MessageExists(ctx, "", "msg_001")
 	if err != nil {
 		t.Fatalf("MessageExists() error = %v", err)
 	}
@@ -204,7 +204,7 @@ func TestListMessageIDsInThread(t *testing.T) {
 		}
 	}
 
-	ids, err := s.ListMessageIDsInThread(ctx, "thread_001")
+	ids, err := s.ListMessageIDsInThread(ctx, "", "thread_001")
 	if err != nil {
 		t.Fatalf("ListMessageIDsInThread() error = %v", err)
 	}
@@ -224,7 +224,7 @@ func TestListMessageIDsInThreadEmpty(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	ids, err := s.ListMessageIDsInThread(ctx, "nonexistent")
+	ids, err := s.ListMessageIDsInThread(ctx, "", "nonexistent")
 	if err != nil {
 		t.Fatalf("ListMessageIDsInThread() error = %v", err)
 	}
@@ -239,7 +239,7 @@ func TestCountMessagesAndThreads(t *testing.T) {
 	s := New(db)
 	ctx := context.Background()
 
-	count, err := s.CountMessages(ctx)
+	count, err := s.CountMessages(ctx, "")
 	if err != nil {
 		t.Fatalf("CountMessages() error = %v", err)
 	}
@@ -247,7 +247,7 @@ func TestCountMessagesAndThreads(t *testing.T) {
 		t.Fatalf("CountMessages() = %d, want 0", count)
 	}
 
-	threads, err := s.CountThreads(ctx)
+	threads, err := s.CountThreads(ctx, "")
 	if err != nil {
 		t.Fatalf("CountThreads() error = %v", err)
 	}
@@ -270,7 +270,7 @@ func TestCountMessagesAndThreads(t *testing.T) {
 		}
 	}
 
-	count, err = s.CountMessages(ctx)
+	count, err = s.CountMessages(ctx, "")
 	if err != nil {
 		t.Fatalf("CountMessages() error = %v", err)
 	}
@@ -278,7 +278,7 @@ func TestCountMessagesAndThreads(t *testing.T) {
 		t.Errorf("CountMessages() = %d, want 3", count)
 	}
 
-	threads, err = s.CountThreads(ctx)
+	threads, err = s.CountThreads(ctx, "")
 	if err != nil {
 		t.Fatalf("CountThreads() error = %v", err)
 	}
@@ -453,7 +453,7 @@ func TestUpsertMessageNilAttachments(t *testing.T) {
 		t.Fatalf("UpsertMessage() error = %v", err)
 	}
 
-	got, err := s.GetMessage(ctx, msg.GmailID)
+	got, err := s.GetMessage(ctx, "", msg.GmailID)
 	if err != nil {
 		t.Fatalf("GetMessage() error = %v", err)
 	}
@@ -476,7 +476,7 @@ func TestUpsertMessageBCCRecipients(t *testing.T) {
 		t.Fatalf("UpsertMessage() error = %v", err)
 	}
 
-	got, err := s.GetMessage(ctx, msg.GmailID)
+	got, err := s.GetMessage(ctx, "", msg.GmailID)
 	if err != nil {
 		t.Fatalf("GetMessage() error = %v", err)
 	}

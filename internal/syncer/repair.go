@@ -60,7 +60,7 @@ func RepairSync(ctx context.Context, client *gmail.Client, s *store.Store, accou
 	}
 
 	// Step 3: Get local message IDs
-	localIDs, err := s.AllMessageIDs(ctx)
+	localIDs, err := s.AllMessageIDs(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("list local messages: %w", err)
 	}
@@ -98,7 +98,7 @@ func RepairSync(ctx context.Context, client *gmail.Client, s *store.Store, accou
 	// Delete messages locally that are not in Gmail
 	for _, id := range localIDs {
 		if !remoteIDs[id] {
-			if err := s.DeleteMessage(ctx, id); err != nil {
+			if err := s.DeleteMessage(ctx, "", id); err != nil {
 				return nil, fmt.Errorf("delete message %s: %w", id, err)
 			}
 			result.Deleted++
@@ -107,7 +107,7 @@ func RepairSync(ctx context.Context, client *gmail.Client, s *store.Store, accou
 
 	// Step 4: Update sync state with new history ID
 	now := time.Now().UTC()
-	msgCount, _ := s.CountMessages(ctx)
+	msgCount, _ := s.CountMessages(ctx, "")
 	if err := s.SetSyncState(ctx, &store.SyncState{
 		AccountID:         accountEmail,
 		HistoryID:         profile.HistoryID,

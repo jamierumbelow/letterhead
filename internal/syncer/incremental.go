@@ -65,7 +65,7 @@ func Incremental(ctx context.Context, client *gmail.Client, s *store.Store, acco
 
 			// Handle deleted messages
 			for _, deleted := range rec.MessagesDeleted {
-				if err := s.DeleteMessage(ctx, deleted.MessageID); err != nil {
+				if err := s.DeleteMessage(ctx, "", deleted.MessageID); err != nil {
 					return nil, fmt.Errorf("delete message %s: %w", deleted.MessageID, err)
 				}
 				result.Deleted++
@@ -110,7 +110,7 @@ func Incremental(ctx context.Context, client *gmail.Client, s *store.Store, acco
 
 // refetchLabels re-fetches a message's metadata and updates its labels in the store.
 func refetchLabels(ctx context.Context, client *gmail.Client, s *store.Store, messageID string) error {
-	exists, err := s.MessageExists(ctx, messageID)
+	exists, err := s.MessageExists(ctx, "", messageID)
 	if err != nil {
 		return fmt.Errorf("check message %s: %w", messageID, err)
 	}
