@@ -130,13 +130,26 @@ func (s *Store) UpsertMessage(ctx context.Context, msg *types.Message) error {
 }
 
 // GetMessage retrieves a single message by Gmail ID, including its
-// labels and recipients.
-func (s *Store) GetMessage(ctx context.Context, gmailID string) (*types.Message, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT gmail_id, thread_id, history_id, internal_date, received_at,
+// labels and recipients. When accountID is non-empty the lookup is
+// scoped to that account; otherwise the first matching row is returned.
+func (s *Store) GetMessage(ctx context.Context, accountID, gmailID string) (*types.Message, error) {
+	var query string
+	var args []interface{}
+	if accountID != "" {
+		query = `SELECT gmail_id, thread_id, history_id, internal_date, received_at,
 		       subject, snippet, from_addr, from_name,
 		       plain_body, html_body, attachment_metadata_json
-		FROM messages WHERE gmail_id = ?`, gmailID)
+		FROM messages WHERE account_id = ? AND gmail_id = ?`
+		args = []interface{}{accountID, gmailID}
+	} else {
+		query = `SELECT gmail_id, thread_id, history_id, internal_date, received_at,
+		       subject, snippet, from_addr, from_name,
+		       plain_body, html_body, attachment_metadata_json
+		FROM messages WHERE gmail_id = ?`
+		args = []interface{}{gmailID}
+	}
+
+	row := s.db.QueryRowContext(ctx, query, args...)
 
 	var msg types.Message
 	var receivedAtUnix int64
@@ -158,7 +171,16 @@ func (s *Store) GetMessage(ctx context.Context, gmailID string) (*types.Message,
 	}
 
 	// Load labels
-	labels, err := s.db.QueryContext(ctx, `SELECT label FROM message_labels WHERE gmail_id = ? ORDER BY label`, gmailID)
+	var labelQuery string
+	var labelArgs []interface{}
+	if accountID != "" {
+		labelQuery = `SELECT label FROM message_labels WHERE account_id = ? AND gmail_id = ? ORDER BY label`
+		labelArgs = []interface{}{accountID, gmailID}
+	} else {
+		labelQuery = `SELECT label FROM message_labels WHERE gmail_id = ? ORDER BY label`
+		labelArgs = []interface{}{gmailID}
+	}
+	labels, err := s.db.QueryContext(ctx, labelQuery, labelArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +197,16 @@ func (s *Store) GetMessage(ctx context.Context, gmailID string) (*types.Message,
 	}
 
 	// Load recipients
-	recips, err := s.db.QueryContext(ctx, `SELECT role, addr, name FROM message_recipients WHERE gmail_id = ? ORDER BY role, addr`, gmailID)
+	var recipQuery string
+	var recipArgs []interface{}
+	if accountID != "" {
+		recipQuery = `SELECT role, addr, name FROM message_recipients WHERE account_id = ? AND gmail_id = ? ORDER BY role, addr`
+		recipArgs = []interface{}{accountID, gmailID}
+	} else {
+		recipQuery = `SELECT role, addr, name FROM message_recipients WHERE gmail_id = ? ORDER BY role, addr`
+		recipArgs = []interface{}{gmailID}
+	}
+	recips, err := s.db.QueryContext(ctx, recipQuery, recipArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -203,9 +234,19 @@ func (s *Store) GetMessage(ctx context.Context, gmailID string) (*types.Message,
 }
 
 // MessageExists returns true if a message with the given Gmail ID exists.
-func (s *Store) MessageExists(ctx context.Context, gmailID string) (bool, error) {
+// When accountID is non-empty the check is scoped to that account.
+func (s *Store) MessageExists(ctx context.Context, accountID, gmailID string) (bool, error) {
+	var query string
+	var args []interface{}
+	if accountID != "" {
+		query = `SELECT 1 FROM messages WHERE account_id = ? AND gmail_id = ? LIMIT 1`
+		args = []interface{}{accountID, gmailID}
+	} else {
+		query = `SELECT 1 FROM messages WHERE gmail_id = ? LIMIT 1`
+		args = []interface{}{gmailID}
+	}
 	var exists int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM messages WHERE gmail_id = ? LIMIT 1`, gmailID).Scan(&exists)
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&exists)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -216,10 +257,19 @@ func (s *Store) MessageExists(ctx context.Context, gmailID string) (bool, error)
 }
 
 // ListMessageIDsInThread returns all Gmail message IDs in the given thread,
-// ordered by internal_date ascending.
-func (s *Store) ListMessageIDsInThread(ctx context.Context, threadID string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT gmail_id FROM messages WHERE thread_id = ? ORDER BY internal_date ASC`, threadID)
+// ordered by internal_date ascending. When accountID is non-empty the
+// query is scoped to that account.
+func (s *Store) ListMessageIDsInThread(ctx context.Context, accountID, threadID string) ([]string, error) {
+	var query string
+	var args []interface{}
+	if accountID != "" {
+		query = `SELECT gmail_id FROM messages WHERE account_id = ? AND thread_id = ? ORDER BY internal_date ASC`
+		args = []interface{}{accountID, threadID}
+	} else {
+		query = `SELECT gmail_id FROM messages WHERE thread_id = ? ORDER BY internal_date ASC`
+		args = []interface{}{threadID}
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -237,16 +287,34 @@ func (s *Store) ListMessageIDsInThread(ctx context.Context, threadID string) ([]
 }
 
 // CountMessages returns the total number of stored messages.
-func (s *Store) CountMessages(ctx context.Context) (int, error) {
+// When accountID is non-empty the count is scoped to that account.
+func (s *Store) CountMessages(ctx context.Context, accountID string) (int, error) {
+	var query string
+	var args []interface{}
+	if accountID != "" {
+		query = `SELECT COUNT(*) FROM messages WHERE account_id = ?`
+		args = []interface{}{accountID}
+	} else {
+		query = `SELECT COUNT(*) FROM messages`
+	}
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages`).Scan(&count)
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&count)
 	return count, err
 }
 
 // CountThreads returns the number of distinct threads.
-func (s *Store) CountThreads(ctx context.Context) (int, error) {
+// When accountID is non-empty the count is scoped to that account.
+func (s *Store) CountThreads(ctx context.Context, accountID string) (int, error) {
+	var query string
+	var args []interface{}
+	if accountID != "" {
+		query = `SELECT COUNT(DISTINCT thread_id) FROM messages WHERE account_id = ?`
+		args = []interface{}{accountID}
+	} else {
+		query = `SELECT COUNT(DISTINCT thread_id) FROM messages`
+	}
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT thread_id) FROM messages`).Scan(&count)
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&count)
 	return count, err
 }
 
@@ -332,8 +400,17 @@ func (s *Store) RebuildFTS(ctx context.Context) error {
 }
 
 // AllMessageIDs returns every gmail_id in the store.
-func (s *Store) AllMessageIDs(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT gmail_id FROM messages`)
+// When accountID is non-empty the result is scoped to that account.
+func (s *Store) AllMessageIDs(ctx context.Context, accountID string) ([]string, error) {
+	var query string
+	var args []interface{}
+	if accountID != "" {
+		query = `SELECT gmail_id FROM messages WHERE account_id = ?`
+		args = []interface{}{accountID}
+	} else {
+		query = `SELECT gmail_id FROM messages`
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -351,21 +428,34 @@ func (s *Store) AllMessageIDs(ctx context.Context) ([]string, error) {
 }
 
 // DeleteMessage removes a message and its associated labels and recipients.
-func (s *Store) DeleteMessage(ctx context.Context, gmailID string) error {
+// When accountID is non-empty the delete is scoped to that account.
+func (s *Store) DeleteMessage(ctx context.Context, accountID, gmailID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint: errcheck
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM message_labels WHERE gmail_id = ?`, gmailID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM message_recipients WHERE gmail_id = ?`, gmailID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE gmail_id = ?`, gmailID); err != nil {
-		return err
+	if accountID != "" {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM message_labels WHERE account_id = ? AND gmail_id = ?`, accountID, gmailID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM message_recipients WHERE account_id = ? AND gmail_id = ?`, accountID, gmailID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE account_id = ? AND gmail_id = ?`, accountID, gmailID); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM message_labels WHERE gmail_id = ?`, gmailID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM message_recipients WHERE gmail_id = ?`, gmailID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE gmail_id = ?`, gmailID); err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit()

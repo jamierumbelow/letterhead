@@ -74,7 +74,7 @@ func Bootstrap(ctx context.Context, client mailclient.MailClient, s *store.Store
 	// Step 3: Filter out IDs already in local store
 	var missingIDs []string
 	for _, id := range allIDs {
-		exists, err := s.MessageExists(ctx, id)
+		exists, err := s.MessageExists(ctx, "", id)
 		if err != nil {
 			return fmt.Errorf("check message exists: %w", err)
 		}

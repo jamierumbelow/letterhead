@@ -69,10 +69,10 @@ func liveStatus(cfg config.Config) (types.StatusOutput, error) {
 	ctx := context.Background()
 	s := store.New(db)
 
-	if count, err := s.CountMessages(ctx); err == nil {
+	if count, err := s.CountMessages(ctx, ""); err == nil {
 		out.MessageCount = count
 	}
-	if count, err := s.CountThreads(ctx); err == nil {
+	if count, err := s.CountThreads(ctx, ""); err == nil {
 		out.ThreadCount = count
 	}
 
