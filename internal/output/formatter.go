@@ -28,6 +28,10 @@ type Formatter interface {
 	WriteStatus(io.Writer, types.StatusOutput) error
 	WriteFind(io.Writer, types.FindOutput) error
 	WriteRead(io.Writer, types.ReadOutput) error
+	WriteDoctor(io.Writer, types.DoctorOutput) error
+	WriteSync(io.Writer, types.SyncOutput) error
+	WriteAuth(io.Writer, types.AuthOutput) error
+	WriteRebuild(io.Writer, types.RebuildOutput) error
 }
 
 func ModeFromFlags(asJSON, asJSONL bool) (Mode, error) {
@@ -206,6 +210,52 @@ func (humanFormatter) WriteRead(w io.Writer, output types.ReadOutput) error {
 	return nil
 }
 
+func (humanFormatter) WriteDoctor(w io.Writer, output types.DoctorOutput) error {
+	for _, c := range output.Checks {
+		var icon string
+		switch c.Status {
+		case "pass":
+			icon = "ok"
+		case "warn":
+			icon = "!!"
+		case "fail":
+			icon = "FAIL"
+		case "skip":
+			icon = "--"
+		}
+		fmt.Fprintf(w, "[%4s] %-20s %s\n", icon, c.Name, c.Message)
+	}
+	return nil
+}
+
+func (humanFormatter) WriteSync(w io.Writer, output types.SyncOutput) error {
+	switch output.Mode {
+	case "bootstrap":
+		fmt.Fprintf(w, "Sync complete: %d messages in %dms\n", output.Added, output.ElapsedMS)
+	case "incremental":
+		fmt.Fprintf(w, "Sync complete: %d added, %d deleted, %d label changes in %dms\n",
+			output.Added, output.Deleted, output.Labels, output.ElapsedMS)
+	case "repair":
+		fmt.Fprintf(w, "Repair complete: %d added, %d deleted in %dms\n",
+			output.Added, output.Deleted, output.ElapsedMS)
+	}
+	return nil
+}
+
+func (humanFormatter) WriteAuth(w io.Writer, output types.AuthOutput) error {
+	if output.Authenticated {
+		fmt.Fprintf(w, "Authenticated as %s\n", output.Account)
+	} else {
+		fmt.Fprintf(w, "Not authenticated: %s\n", output.Account)
+	}
+	return nil
+}
+
+func (humanFormatter) WriteRebuild(w io.Writer, output types.RebuildOutput) error {
+	fmt.Fprintf(w, "FTS index rebuilt: %d messages in %dms\n", output.MessageCount, output.ElapsedMS)
+	return nil
+}
+
 type jsonFormatter struct{}
 
 func (jsonFormatter) WriteStatus(w io.Writer, output types.StatusOutput) error {
@@ -217,6 +267,22 @@ func (jsonFormatter) WriteFind(w io.Writer, output types.FindOutput) error {
 }
 
 func (jsonFormatter) WriteRead(w io.Writer, output types.ReadOutput) error {
+	return writeJSON(w, output)
+}
+
+func (jsonFormatter) WriteDoctor(w io.Writer, output types.DoctorOutput) error {
+	return writeJSON(w, output)
+}
+
+func (jsonFormatter) WriteSync(w io.Writer, output types.SyncOutput) error {
+	return writeJSON(w, output)
+}
+
+func (jsonFormatter) WriteAuth(w io.Writer, output types.AuthOutput) error {
+	return writeJSON(w, output)
+}
+
+func (jsonFormatter) WriteRebuild(w io.Writer, output types.RebuildOutput) error {
 	return writeJSON(w, output)
 }
 
@@ -238,6 +304,22 @@ func (jsonlFormatter) WriteFind(w io.Writer, output types.FindOutput) error {
 }
 
 func (jsonlFormatter) WriteRead(w io.Writer, output types.ReadOutput) error {
+	return writeJSON(w, output)
+}
+
+func (jsonlFormatter) WriteDoctor(w io.Writer, output types.DoctorOutput) error {
+	return writeJSON(w, output)
+}
+
+func (jsonlFormatter) WriteSync(w io.Writer, output types.SyncOutput) error {
+	return writeJSON(w, output)
+}
+
+func (jsonlFormatter) WriteAuth(w io.Writer, output types.AuthOutput) error {
+	return writeJSON(w, output)
+}
+
+func (jsonlFormatter) WriteRebuild(w io.Writer, output types.RebuildOutput) error {
 	return writeJSON(w, output)
 }
 

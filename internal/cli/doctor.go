@@ -6,6 +6,7 @@ import (
 
 	"github.com/jamierumbelow/letterhead/internal/diagnostics"
 	"github.com/jamierumbelow/letterhead/internal/store"
+	"github.com/jamierumbelow/letterhead/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -32,21 +33,31 @@ func newDoctorCommand() *cobra.Command {
 
 			results := diagnostics.RunAll(ctx, &cfg, s, fix)
 
+			_, formatter, err := formatterFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+
 			hasFailure := false
-			for _, r := range results {
-				var icon string
-				switch r.Status {
-				case diagnostics.StatusPass:
-					icon = "ok"
-				case diagnostics.StatusWarn:
-					icon = "!!"
-				case diagnostics.StatusFail:
-					icon = "FAIL"
-					hasFailure = true
-				case diagnostics.StatusSkip:
-					icon = "--"
+			checks := make([]types.DoctorCheckResult, len(results))
+			for i, r := range results {
+				checks[i] = types.DoctorCheckResult{
+					Name:    r.Name,
+					Status:  string(r.Status),
+					Message: r.Message,
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "[%4s] %-20s %s\n", icon, r.Name, r.Message)
+				if r.Status == diagnostics.StatusFail {
+					hasFailure = true
+				}
+			}
+
+			output := types.DoctorOutput{
+				OK:     !hasFailure,
+				Checks: checks,
+			}
+
+			if err := formatter.WriteDoctor(cmd.OutOrStdout(), output); err != nil {
+				return err
 			}
 
 			if hasFailure {

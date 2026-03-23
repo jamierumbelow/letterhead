@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jamierumbelow/letterhead/internal/store"
+	"github.com/jamierumbelow/letterhead/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -40,10 +41,19 @@ func newRebuildCommand() *cobra.Command {
 			}
 
 			count, _ := s.CountMessages(ctx, "")
-			elapsed := time.Since(start).Truncate(time.Millisecond)
+			elapsed := time.Since(start)
 
-			fmt.Fprintf(cmd.OutOrStdout(), "FTS index rebuilt: %d messages in %s\n", count, elapsed)
-			return nil
+			_, formatter, err := formatterFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+
+			output := types.RebuildOutput{
+				MessageCount: count,
+				ElapsedMS:    elapsed.Milliseconds(),
+			}
+
+			return formatter.WriteRebuild(cmd.OutOrStdout(), output)
 		},
 	}
 }
