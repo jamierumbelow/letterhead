@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"strings"
 
 	"github.com/jamierumbelow/letterhead/internal/diagnostics"
@@ -78,7 +77,7 @@ func readSingle(ctx context.Context, cmd *cobra.Command, s *store.Store, formatt
 		// Try as thread ID — get the latest message
 		msgs, threadErr := s.GetMessagesInThreadForAccount(ctx, accountID, handle)
 		if threadErr != nil || len(msgs) == 0 {
-			return fmt.Errorf("message or thread %q not found", handle)
+			return NewExitErrorWithHint(ExitNotFound, "letterhead find <query>", "message or thread %q not found", handle)
 		}
 		latest := msgs[len(msgs)-1]
 		msg = &latest
@@ -105,7 +104,7 @@ func readThread(ctx context.Context, cmd *cobra.Command, s *store.Store, formatt
 		return err
 	}
 	if len(msgs) == 0 {
-		return fmt.Errorf("thread %q not found", handle)
+		return NewExitErrorWithHint(ExitNotFound, "letterhead find <query>", "thread %q not found", handle)
 	}
 
 	latest := msgs[len(msgs)-1]

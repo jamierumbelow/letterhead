@@ -366,6 +366,15 @@ func isTTY() bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
+// IsStdoutTTY reports whether stdout is connected to a terminal.
+func IsStdoutTTY() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
 func promptArchiveRoot(cmd *cobra.Command, defaultArchiveRoot string) (string, error) {
 	if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "Archive root [%s]: ", defaultArchiveRoot); err != nil {
 		return "", err

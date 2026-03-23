@@ -85,3 +85,72 @@ type ReadOutput struct {
 	Body         string           `json:"body,omitempty"`
 	Messages     []MessageSummary `json:"messages,omitempty"`
 }
+
+// ErrorOutput is the structured error envelope for robot mode.
+type ErrorOutput struct {
+	OK    bool       `json:"ok"`
+	Error ErrorInfo  `json:"error"`
+}
+
+// ErrorInfo is the detail inside an ErrorOutput.
+type ErrorInfo struct {
+	Code     string `json:"code"`
+	ExitCode int    `json:"exit_code"`
+	Message  string `json:"message"`
+	Hint     string `json:"hint,omitempty"`
+}
+
+// DoctorCheckResult is one health check from `letterhead doctor`.
+type DoctorCheckResult struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"` // pass, warn, fail, skip
+	Message string `json:"message"`
+}
+
+// DoctorOutput is the stable machine-readable contract for `letterhead doctor`.
+type DoctorOutput struct {
+	OK     bool                `json:"ok"`
+	Checks []DoctorCheckResult `json:"checks"`
+}
+
+// SyncOutput is the stable machine-readable contract for `letterhead sync`.
+type SyncOutput struct {
+	Account   string  `json:"account"`
+	Mode      string  `json:"mode"` // bootstrap, incremental, repair
+	Added     int     `json:"added"`
+	Deleted   int     `json:"deleted,omitempty"`
+	Labels    int     `json:"labels,omitempty"`
+	ElapsedMS int64   `json:"elapsed_ms"`
+}
+
+// SyncAllOutput wraps results when syncing multiple accounts.
+type SyncAllOutput struct {
+	Results []SyncOutput `json:"results"`
+	Errors  []string     `json:"errors,omitempty"`
+}
+
+// AuthOutput is the stable machine-readable contract for `letterhead auth`.
+type AuthOutput struct {
+	Account       string `json:"account"`
+	Authenticated bool   `json:"authenticated"`
+	Method        string `json:"method,omitempty"`
+}
+
+// RebuildOutput is the stable machine-readable contract for `letterhead rebuild`.
+type RebuildOutput struct {
+	MessageCount int   `json:"message_count"`
+	ElapsedMS    int64 `json:"elapsed_ms"`
+}
+
+// HelpCommand describes a subcommand for compact JSON help.
+type HelpCommand struct {
+	Name  string `json:"name"`
+	Short string `json:"short"`
+	Usage string `json:"usage,omitempty"`
+}
+
+// HelpOutput is the compact help envelope for robot mode.
+type HelpOutput struct {
+	Commands []HelpCommand `json:"commands"`
+	Flags    []string      `json:"flags"`
+}
