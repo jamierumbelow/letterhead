@@ -102,15 +102,37 @@ letterhead status
 
 Shows account, archive path, message/thread counts, sync progress, and database health.
 
-### JSON output
+### JSON output (robot mode)
 
-Every command supports `--json` and `--jsonl` for structured output, useful for piping to `jq` or feeding to AI agents:
+Every command supports `--json` and `--jsonl` for structured output. When stdout is piped (not a TTY), JSON is the default -- no flag needed.
 
 ```bash
+# Explicit
 letterhead find quarterly report --json | jq '.results[].subject'
-letterhead find --from boss@company.com --jsonl | head -5
 letterhead status --json
+
+# Auto-detected (piped)
+letterhead find quarterly report | jq '.results[].subject'
+letterhead status | cat
+
+# JSONL for streaming
+letterhead find --from boss@company.com --jsonl | head -5
 ```
+
+**Compact help**: Running `letterhead` with no args in JSON mode emits a ~100 token command index:
+
+```bash
+letterhead --json
+# {"commands":[{"name":"find","short":"Search the local archive",...}],"flags":["--json","--jsonl","--account <email>"]}
+```
+
+**Structured errors** go to stderr with exit code, error code, and recovery hint:
+
+```json
+{"ok":false,"error":{"code":"not_found","exit_code":7,"message":"thread \"abc\" not found","hint":"letterhead find <query>"}}
+```
+
+**Exit codes**: 0=success, 1=usage, 2=lock conflict, 3=auth, 4=store, 5=network, 6=not initialized, 7=not found.
 
 ## Config
 
