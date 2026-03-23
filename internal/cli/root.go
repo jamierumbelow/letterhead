@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
+	"os"
+
 	"github.com/jamierumbelow/letterhead/internal/output"
+	"github.com/jamierumbelow/letterhead/pkg/types"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +28,11 @@ func NewRootCommand() *cobra.Command {
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// In JSON mode (explicit or auto-detected), emit compact help
+			autoJSON := cmd.OutOrStdout() == os.Stdout && !IsStdoutTTY()
+			if opts.json || opts.jsonl || autoJSON {
+				return writeCompactHelp(cmd)
+			}
 			return cmd.Help()
 		},
 	}
@@ -45,6 +54,25 @@ func NewRootCommand() *cobra.Command {
 	return cmd
 }
 
-func Execute() {
-	cobra.CheckErr(NewRootCommand().Execute())
+func writeCompactHelp(cmd *cobra.Command) error {
+	var cmds []types.HelpCommand
+	for _, sub := range cmd.Commands() {
+		if sub.Hidden || !sub.IsAvailableCommand() {
+			continue
+		}
+		cmds = append(cmds, types.HelpCommand{
+			Name:  sub.Name(),
+			Short: sub.Short,
+			Usage: sub.UseLine(),
+		})
+	}
+
+	help := types.HelpOutput{
+		Commands: cmds,
+		Flags:    []string{"--json", "--jsonl", "--account <email>"},
+	}
+
+	enc := json.NewEncoder(cmd.OutOrStdout())
+	enc.SetEscapeHTML(false)
+	return enc.Encode(help)
 }

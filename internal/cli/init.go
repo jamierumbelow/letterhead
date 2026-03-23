@@ -130,6 +130,12 @@ func formatterFromCommand(cmd *cobra.Command) (output.Mode, output.Formatter, er
 		return "", nil, err
 	}
 
+	// Auto-detect: if stdout is not a TTY and no explicit flag, default to JSON.
+	// Only auto-detect when writing to the real os.Stdout (not a test buffer).
+	if !asJSON && !asJSONL && cmd.OutOrStdout() == os.Stdout && !IsStdoutTTY() {
+		asJSON = true
+	}
+
 	mode, err := output.ModeFromFlags(asJSON, asJSONL)
 	if err != nil {
 		return "", nil, err
