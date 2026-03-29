@@ -163,8 +163,9 @@ func writeAccountsTable(w io.Writer, accounts []accountInfo) error {
 
 func newAccountsAddCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "add",
+		Use:   "add [email]",
 		Short: "Add a new email account interactively",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -176,13 +177,19 @@ func newAccountsAddCommand() *cobra.Command {
 
 			reader := bufio.NewReader(os.Stdin)
 
-			// Prompt for email
-			fmt.Print("Email address: ")
-			email, err := reader.ReadString('\n')
-			if err != nil && !errors.Is(err, io.EOF) {
-				return err
+			// Prompt for email (or use provided arg)
+			var email string
+			if len(args) > 0 {
+				email = strings.TrimSpace(args[0])
+				fmt.Printf("Email address: %s\n", email)
+			} else {
+				fmt.Print("Email address: ")
+				email, err = reader.ReadString('\n')
+				if err != nil && !errors.Is(err, io.EOF) {
+					return err
+				}
+				email = strings.TrimSpace(email)
 			}
-			email = strings.TrimSpace(email)
 			if email == "" {
 				return fmt.Errorf("email is required")
 			}
@@ -207,10 +214,29 @@ func newAccountsAddCommand() *cobra.Command {
 			authMethod := config.AuthMethodAppPassword
 			if choice == "2" {
 				authMethod = config.AuthMethodOAuth
+				fmt.Println()
+				fmt.Println("Google OAuth will open a browser window to sign in and grant")
+				fmt.Println("Letterhead read-only access to your Gmail.")
+				fmt.Println()
+				fmt.Println("After adding the account, run `letterhead auth` to complete")
+				fmt.Println("the sign-in flow.")
+				fmt.Println()
+				fmt.Println("If you need to supply your own OAuth credentials, place a")
+				fmt.Println("credentials.json from Google Cloud Console in ~/.config/letterhead/")
+				fmt.Println("or set LETTERHEAD_CLIENT_ID and LETTERHEAD_CLIENT_SECRET.")
 			}
 
-			// If app password, prompt for it
+			// If app password, show instructions and prompt for it
 			if authMethod == config.AuthMethodAppPassword {
+				fmt.Println()
+				fmt.Println("To create a Gmail app password:")
+				fmt.Println("  1. Go to https://myaccount.google.com/security")
+				fmt.Println("  2. Under 'How you sign in to Google', open 2-Step Verification")
+				fmt.Println("     (you must have 2FA enabled)")
+				fmt.Println("  3. Scroll to the bottom and click 'App passwords'")
+				fmt.Println("  4. Enter a name (e.g. 'Letterhead') and click Create")
+				fmt.Println("  5. Copy the 16-character password shown")
+				fmt.Println()
 				fmt.Print("App password: ")
 				appPass, err := reader.ReadString('\n')
 				if err != nil && !errors.Is(err, io.EOF) {
@@ -254,9 +280,10 @@ func newAccountsAddCommand() *cobra.Command {
 
 func newAccountsRemoveCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "remove <email>",
-		Short: "Remove a configured account",
-		Args:  cobra.ExactArgs(1),
+		Use:     "remove <email>",
+		Aliases: []string{"rm"},
+		Short:   "Remove a configured account",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			email := args[0]
 
