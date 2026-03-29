@@ -95,6 +95,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	cfg.migrateDeprecated()
 	cfg.applyDefaults()
 
 	if err := cfg.Validate(); err != nil {
@@ -326,7 +327,12 @@ func (c *Config) applyDefaults() {
 			c.ArchiveRoot = archiveRoot
 		}
 	}
+}
 
+// migrateDeprecated migrates the old flat account_email/auth_method fields
+// into the Accounts slice and back-populates them for backward compat.
+// Called only from Load() so that Save() does not re-add removed accounts.
+func (c *Config) migrateDeprecated() {
 	// Migrate deprecated flat fields into Accounts slice.
 	if c.AccountEmail != "" && len(c.Accounts) == 0 {
 		authMethod := c.AuthMethod
