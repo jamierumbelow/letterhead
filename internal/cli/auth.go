@@ -9,7 +9,9 @@ import (
 )
 
 func newAuthCommand() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+
+	cmd := &cobra.Command{
 		Use:   "auth",
 		Short: "Authenticate with Gmail",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -33,19 +35,33 @@ func newAuthCommand() *cobra.Command {
 				Method:  string(acct.AuthMethod),
 			}
 
-			if auth.IsAuthenticated(acct.Email) {
+			if !force && auth.IsAuthenticated(acct.Email) {
 				output.Authenticated = true
 				return formatter.WriteAuth(cmd.OutOrStdout(), output)
 			}
 
-			result, err := auth.GetClient(context.Background(), acct.Email)
-			if err != nil {
-				return NewExitErrorWithHint(ExitAuth, "letterhead auth", "authentication failed: %v", err)
+			ctx := context.Background()
+
+			if force {
+				oc, err := auth.LoadOAuthConfig(acct.Email)
+				if err != nil {
+					return NewExitErrorWithHint(ExitAuth, "letterhead auth", "authentication failed: %v", err)
+				}
+				if _, err := oc.Authenticate(ctx); err != nil {
+					return NewExitErrorWithHint(ExitAuth, "letterhead auth", "authentication failed: %v", err)
+				}
+			} else {
+				if _, err := auth.GetClient(ctx, acct.Email); err != nil {
+					return NewExitErrorWithHint(ExitAuth, "letterhead auth", "authentication failed: %v", err)
+				}
 			}
-			_ = result
 
 			output.Authenticated = true
 			return formatter.WriteAuth(cmd.OutOrStdout(), output)
 		},
 	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "Force interactive re-authentication, replacing any stored token")
+
+	return cmd
 }

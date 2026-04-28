@@ -45,6 +45,9 @@ func main() {
 		_ = enc.Encode(errOut)
 	} else {
 		fmt.Fprintln(os.Stderr, "Error:", err)
+		if hint != "" {
+			fmt.Fprintln(os.Stderr, "Hint:", hint)
+		}
 	}
 
 	os.Exit(code)

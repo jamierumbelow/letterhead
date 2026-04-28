@@ -20,7 +20,23 @@ import (
 	"github.com/jamierumbelow/letterhead/internal/syncer"
 	"github.com/jamierumbelow/letterhead/pkg/types"
 	"github.com/spf13/cobra"
+	"golang.org/x/oauth2"
 )
+
+// translateAuthError converts an oauth2 token-refresh failure (typically a
+// revoked or expired refresh token) into an actionable ExitAuth error that
+// points the user at `letterhead auth --force` to recover.
+func translateAuthError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var re *oauth2.RetrieveError
+	if errors.As(err, &re) && re.ErrorCode == "invalid_grant" {
+		return NewExitErrorWithHint(ExitAuth, "letterhead auth --force",
+			"OAuth refresh token rejected by Google (invalid_grant); re-authenticate to continue")
+	}
+	return err
+}
 
 func newSyncCommand() *cobra.Command {
 	var (
@@ -127,7 +143,11 @@ func syncAllAccounts(ctx context.Context, cmd *cobra.Command, cfg config.Config,
 	return nil
 }
 
-func syncOneAccount(ctx context.Context, cmd *cobra.Command, cfg config.Config, s *store.Store, acct *config.AccountConfig, repair bool, prefixOutput bool, formatter output.Formatter) error {
+func syncOneAccount(ctx context.Context, cmd *cobra.Command, cfg config.Config, s *store.Store, acct *config.AccountConfig, repair bool, prefixOutput bool, formatter output.Formatter) (err error) {
+	defer func() {
+		err = translateAuthError(err)
+	}()
+
 	prefix := ""
 	if prefixOutput {
 		prefix = fmt.Sprintf("[%s] ", acct.Email)
